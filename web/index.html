@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1E88E5">
+    <title>Zwesta Trading</title>
+    <base href="/">
+
+    <!-- iOS meta tags & icons -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Zwesta Trading">
+    <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/jpeg" href="favicon.jpg"/>
+
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+        }
+        #flutter-loader {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%);
+            color: white;
+            font-size: 18px;
+        }
+        #error-container {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(30, 30, 30, 0.95);
+            color: #ff6b6b;
+            padding: 20px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 9999;
+        }
+        #error-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #ff6b6b;
+        }
+        #error-message {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ff6b6b;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #error-stack {
+            font-size: 11px;
+            color: #ffaa00;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #error-log {
+            margin-top: 20px;
+            color: #aaa;
+        }
+        .error-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: #1a1a1a;
+            border-left: 3px solid #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div id="flutter-loader">Loading Zwesta Trading System...</div>
+    <div id="error-container">
+        <div id="error-title">⚠️ Application Error</div>
+        <div id="error-message"></div>
+        <div style="color: #aaa; margin-top: 20px;">Stack Trace:</div>
+        <div id="error-stack"></div>
+        <div id="error-log"></div>
+    </div>
+
+    <script>
+        // AGGRESSIVE CACHE BUSTING - Run first before any assets load
+        window._buildVersion = 'v' + Date.now(); // Unique version
+        
+        // Unregister all service workers immediately
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                for (const registration of registrations) {
+                    registration.unregister().catch(e => console.error('SW unregister:', e));
+                }
+            }).catch(e => console.error('SW getRegistrations:', e));
+            
+            // Clear all caches
+            caches.keys().then(names => {
+                names.forEach(name => {
+                    caches.delete(name).catch(e => console.error('Cache delete:', e));
+                });
+            }).catch(e => console.error('Caches.keys:', e));
+        }
+        
+        // Clear localStorage and sessionStorage
+        try {
+            localStorage.clear();
+            sessionStorage.clear();
+        } catch(e) {
+            console.error('Storage clear:', e);
+        }
+
+        const errorContainer = document.getElementById('error-container');
+        const errorMessage = document.getElementById('error-message');
+        const errorStack = document.getElementById('error-stack');
+        const errorLog = document.getElementById('error-log');
+        const flutterLoader = document.getElementById('flutter-loader');
+
+        window.debugErrors = [];
+        
+        function showError(title, message, stack = '') {
+            flutterLoader.style.display = 'none';
+            errorContainer.style.display = 'block';
+            errorMessage.textContent = title + '\n' + message;
+            if (stack) {
+                errorStack.textContent = stack;
+            }
+            console.error('App Error:', title, message, stack);
+        }
+
+        // Catch global errors
+        window.addEventListener('error', function(event) {
+            const msg = event.message || 'Unknown error';
+            const source = event.filename || 'unknown';
+            const lineno = event.lineno || 'unknown';
+            const colno = event.colno || 'unknown';
+            const error = event.error || {};
+            
+            const fullError = `${msg}\n@ ${source}:${lineno}:${colno}`;
+            window.debugErrors.push(fullError);
+            
+            if (errorContainer.style.display !== 'block') {
+                showError('JavaScript Error', fullError, error.stack || '');
+            }
+        });
+
+        // Catch unhandled promise rejections
+        window.addEventListener('unhandledrejection', function(event) {
+            const reason = event.reason || 'Unknown promise rejection';
+            window.debugErrors.push(String(reason));
+            
+            if (errorContainer.style.display !== 'block') {
+                showError('Unhandled Promise Rejection', String(reason), '');
+            }
+        });
+
+        // Monitor console errors
+        const originalError = console.error;
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+            window.debugErrors.push(msg);
+            if (msg.includes('RangeError') || msg.includes('Error')) {
+                if (errorContainer.style.display !== 'block') {
+                    showError('Console Error', msg, '');
+                }
+            }
+        };
+    </script>
+
+    <script src="flutter_bootstrap.js" async></script>

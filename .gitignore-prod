@@ -1,0 +1,91 @@
+# Environment & Config
+.env
+.env.*
+!.env.production.example
+!.env.example
+
+# Build
+build/
+dist/
+*.dart.js
+*.js.map
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Data & Backups
+data/
+backups/
+*.db
+*.sqlite
+*.sqlite3
+
+# Certificates
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+.travis.yml
+
+# Testing
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Credentials (NEVER commit these!)
+credentials.json
+secrets.json
+api-keys.txt
+aws-credentials
+gcloud-credentials
+
+# Node modules (if applicable)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Fleet & IDE
+.fleet/

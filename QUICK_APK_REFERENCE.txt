@@ -1,0 +1,246 @@
+================================================================================
+                    ZWESTA TRADING - ANDROID APK QUICK REFERENCE
+================================================================================
+
+PROBLEM: Local Gradle build fails (v1 embedding deprecated)
+SOLUTION: Use GitHub Actions (cloud build - free, automatic, reliable)
+TIME: First APK ready in 20-30 minutes (includes setup)
+COST: $0
+
+================================================================================
+                              STEP-BY-STEP (COPY-PASTE)
+================================================================================
+
+STEP 1 - CREATE GITHUB ACCOUNT (2 min)
+  → Go to: https://github.com/signup
+  → Sign up with email
+  → Verify email
+  → Done!
+
+STEP 2 - CREATE REPOSITORY (3 min)
+  → Go to: https://github.com/new
+  → Name: zwesta-trading
+  → Visibility: Public (required for free Actions)
+  → Click "Create repository"
+  → Copy the URL shown (you'll need it)
+
+STEP 3 - PUSH YOUR CODE (5 min)
+  → Open PowerShell
+  → Run these commands:
+
+    cd "c:\zwesta-trader\Zwesta Flutter App"
+    
+    git init
+    git add .
+    git commit -m "Initial commit"
+    git remote add origin https://github.com/YOUR_USERNAME/zwesta-trading.git
+    git branch -M main
+    git push -u origin main
+
+  NOTE: Replace YOUR_USERNAME with your GitHub username
+
+STEP 4 - WAIT FOR BUILD (10-15 min)
+  → Go to: https://github.com/YOUR_USERNAME/zwesta-trading
+  → Click "Actions" tab
+  → See the build running
+  → Wait for green checkmark ✓
+  → Build complete!
+
+STEP 5 - DOWNLOAD APK (2 min)
+  → Click the successful build
+  → Scroll down to "Artifacts"
+  → Download "app-release.apk"
+  → Save to Downloads
+
+STEP 6 - INSTALL ON PHONE (5 min)
+  → Email APK to yourself OR upload to Google Drive
+  → On Android phone: download APK
+  → Tap APK file
+  → Tap "Install"
+  → Done!
+
+================================================================================
+                              FOR FUTURE UPDATES
+================================================================================
+
+Every time you change code:
+
+  git add .
+  git commit -m "Description of changes"
+  git push
+
+→ GitHub Actions automatically builds
+→ APK ready in 10-15 minutes
+→ Download from Actions → Artifacts
+→ Install on phone
+
+That's it. No more commands needed.
+
+================================================================================
+                                   TIMELINE
+================================================================================
+
+First time setup:
+  GitHub account creation ............. 2 minutes
+  Repository creation ................ 3 minutes
+  Push code .......................... 5 minutes
+  APK builds ..................... 10-15 minutes
+  Download APK ....................... 1 minute
+  Install on phone ................... 5 minutes
+  ────────────────────────────────────────────
+  TOTAL ...................... 26-31 minutes
+
+Future updates:
+  Make code changes .................. varies
+  Commit and push .................... 1 minute
+  GitHub Actions builds .......... 10-15 minutes
+  Download new APK ................... 1 minute
+  Install on phone ................... 2 minutes
+
+================================================================================
+                              REQUIREMENTS
+================================================================================
+
+✓ GitHub account (free)
+✓ Android phone (Android 5.0 or newer)
+✓ Internet connection
+✓ 500 MB storage space on phone
+✓ Email or Google Drive (to transfer APK)
+
+================================================================================
+                            TROUBLESHOOTING
+================================================================================
+
+"Repo creation failed"
+  → Sign in to GitHub first
+  → Make sure your username is available
+  → Use lowercase letters only
+
+"Push failed - Permission denied"
+  → GitHub password no longer works
+  → Use Personal Access Token instead:
+    1. GitHub Settings → Developer settings → Personal access tokens
+    2. Click "New token"
+    3. Check "repo" checkbox
+    4. Copy the token
+    5. Use: https://TOKEN@github.com/USERNAME/repo.git
+
+"APK won't install on phone"
+  → Check: Does your phone have Android 5.0+? (Settings → About phone)
+  → Check: Is there enough storage? (Settings → Storage)
+  → Check: Is "Unknown sources" enabled? (Settings → Security)
+  → Try: Settings → Apps → Clear cache → Try again
+
+"Build failed in GitHub Actions"
+  → Click the failed build
+  → Read the error message
+  → Usually: Fix pubspec.yaml or lock conflicting packages
+  → Push again after fixing
+
+"APK is too large"
+  → Normal size: 40-50 MB
+  → Remove unused dependencies from pubspec.yaml
+  → Rebuild
+
+================================================================================
+                            HELPFUL LINKS
+================================================================================
+
+GitHub Account: https://github.com/signup
+Create Repo: https://github.com/new
+Flutter Docs: https://docs.flutter.dev
+Android Developer: https://developer.android.com
+
+================================================================================
+                          WHAT'S IN YOUR APK?
+================================================================================
+
+✓ Dashboard - Real-time bot status and charts
+✓ Create Bot - Launch new trading bots
+✓ Bot Analytics - Detailed performance metrics
+✓ Market Data - 24 commodities with sentiment
+✓ Strategy Switching - Intelligent auto-switching
+✓ Position Scaling - Dynamic position sizing
+✓ Cross-platform Sync - Web ↔ Mobile updates
+
+Supported Android: 5.0 to latest (all phones)
+File Size: 40-50 MB
+Features: 100% of web app
+Special Requirements: None (works on WiFi or mobile data)
+
+================================================================================
+                         AFTER FIRST APK WORKS
+================================================================================
+
+You now have:
+✓ Fully automatic APK building (GitHub Actions)
+✓ Free unlimited builds
+✓ No more local Gradle issues
+✓ APK ready whenever you push code
+✓ Artifact storage for 90 days
+
+Next steps:
+[ ] Test APK on Android phone
+[ ] Verify all features work
+[ ] Plan Phase 2 features (push notifications, auth)
+[ ] Configure app signing for Google Play
+[ ] Submit to Google Play Store (when ready)
+
+================================================================================
+                              QUICK COMMANDS
+================================================================================
+
+Check git status:
+  git status
+
+View recent commits:
+  git log --oneline
+
+View remote URL:
+  git remote -v
+
+Change remote URL:
+  git remote set-url origin https://github.com/USERNAME/zwesta-trading.git
+
+Reset to last commit:
+  git reset --hard HEAD
+
+View GitHub Actions:
+  https://github.com/USERNAME/zwesta-trading/actions
+
+Download APK:
+  https://github.com/USERNAME/zwesta-trading/actions → Click build → Artifacts
+
+================================================================================
+                         REMEMBER
+================================================================================
+
+If something breaks:
+  1. Run: git status
+  2. See what changed
+  3. Either: fix the file or git reset --hard HEAD
+  4. Push again
+  5. GitHub Actions builds again
+
+If new APK is needed:
+  1. Make your changes
+  2. git add . && git commit -m "Message" && git push
+  3. Wait 10-15 minutes
+  4. Download from Actions
+  5. Install on phone
+
+If you have questions:
+  1. Read: ANDROID_APK_COMPLETE_GUIDE.md (full version)
+  2. Check: GitHub Actions logs for specific errors
+  3. Google: The error message + "Flutter"
+
+================================================================================
+                              YOU'VE GOT THIS! 🚀
+================================================================================
+
+Your trading app is ready to be tested on Android.
+Complete the 6 steps above and you'll have your APK in 30 minutes.
+
+Let's go build something amazing! 💪
+
+================================================================================

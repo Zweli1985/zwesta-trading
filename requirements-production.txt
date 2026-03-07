@@ -1,0 +1,42 @@
+Flask==3.0.0
+Flask-CORS==4.0.0
+MetaTrader5==5.0.40
+python-dotenv==1.0.0
+
+# Production WSGI server
+gunicorn==21.2.0
+gevent==23.9.1
+
+# Database (optional)
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# Caching (optional)
+redis==5.0.1
+python-memcached==1.59
+
+# Security
+cryptography==41.0.7
+PyJWT==2.8.1
+python-multipart==0.0.6
+
+# Utilities
+requests==2.31.0
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Monitoring (optional)
+sentry-sdk==1.38.0
+
+# Data validation
+pydantic==2.5.0
+
+# API Documentation (optional)
+flasgger==0.9.7.1
+
+# Logging
+python-json-logger==2.0.7
+
+# Testing (dev only)
+pytest==7.4.3
+pytest-cov==4.1.0

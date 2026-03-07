@@ -1,0 +1,36 @@
+[Unit]
+Description=Zwesta Trading System Backend
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=zwesta
+WorkingDirectory=/opt/zwesta-trading
+Environment="PATH=/opt/zwesta-trading/venv/bin"
+EnvironmentFile=/opt/zwesta-trading/.env.production
+ExecStart=/opt/zwesta-trading/venv/bin/gunicorn \
+    --bind 0.0.0.0:9000 \
+    --workers 4 \
+    --worker-class sync \
+    --worker-connections 1000 \
+    --timeout 120 \
+    --access-logfile /var/log/zwesta/access.log \
+    --error-logfile /var/log/zwesta/error.log \
+    --log-level info \
+    wsgi:app
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/zwesta-trading/data /var/log/zwesta
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+{
+  "botId": "bot_momentum",
+  "accountId": "Default MT5",
+  "symbols": ["GBPUSD", "USDJPY"],
+  "strategy": "Momentum Trading",
+  "riskPerTrade": 120,
+  "maxDailyLoss": 600,
+  "enabled": true
+}
