@@ -3,10 +3,14 @@ import 'package:flutter/foundation.dart';
 enum Environment { development, staging, production }
 
 class EnvironmentConfig {
+  // VPS Configuration
+  static const String _vpsHost = '38.247.146.198';
+  static const int _vpsPort = 5000; // Flask backend port
+
   // Default API URLs - can be overridden by environment variables
   static const String _devApiUrl = 'http://localhost:9000';
-  static const String _stagingApiUrl = 'https://staging-api.zwesta.com';
-  static const String _prodApiUrl = 'https://api.zwesta.com';
+  static const String _stagingApiUrl = 'http://38.247.146.198:5000';
+  static const String _prodApiUrl = 'http://38.247.146.198:5000';
 
   static const String _devApiKey = 'dev_key_12345';
   static const String _stagingApiKey = 'staging_key_12345';
