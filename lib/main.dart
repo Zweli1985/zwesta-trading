@@ -11,7 +11,7 @@ import 'services/financial_service.dart';
 import 'utils/theme.dart';
 import 'utils/environment_config.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set environment based on app mode (safe)
@@ -25,13 +25,6 @@ void main() async {
     );
   } catch (_) {
     EnvironmentConfig.setEnvironment(Environment.production);
-  }
-
-  // Only log errors in debug mode
-  if (kDebugMode) {
-    FlutterError.onError = (details) {
-      FlutterError.dumpErrorToConsole(details);
-    };
   }
 
   runApp(const MyApp());
@@ -54,15 +47,12 @@ class MyApp extends StatelessWidget {
             return tradingService ?? TradingService(authService.token);
           },
         ),
-        // Lazy create - don't initialize in constructor
         ChangeNotifierProvider(
           create: (_) => BotService(),
         ),
-        // Lazy create - don't initialize in constructor
         ChangeNotifierProvider(
           create: (_) => StatementService(),
         ),
-        // Lazy create - don't initialize in constructor
         ChangeNotifierProvider(
           create: (_) => FinancialService(),
         ),
