@@ -10,7 +10,7 @@ workflows:
     instance_type: mac_mini_m2
     
     environment:
-      flutter: 3.16.0
+      flutter: 3.13.9
       
     triggering:
       events:
