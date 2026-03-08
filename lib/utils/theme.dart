@@ -103,11 +103,6 @@ class AppTheme {
           borderSide: const BorderSide(color: AppColors.dangerColor),
         ),
       ),
-      cardTheme: CardThemeData(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        color: Colors.white,
-      ),
     );
   }
 
@@ -147,11 +142,6 @@ class AppTheme {
             borderRadius: BorderRadius.circular(8),
           ),
         ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        color: AppColors.darkGrey,
       ),
     );
   }
