@@ -28,46 +28,56 @@ class _TradesScreenState extends State<TradesScreen> {
           ),
         ],
       ),
-      body: Consumer<TradingService>(
-        builder: (context, tradingService, _) {
-          return Column(
-            children: [
-              // Tab Selector
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Row(
-                  children: [
-                    _buildTabButton(
-                      context,
-                      'All',
-                      0,
-                      '${tradingService.trades.length}',
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    _buildTabButton(
-                      context,
-                      'Open',
-                      1,
-                      '${tradingService.activeTrades.length}',
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    _buildTabButton(
-                      context,
-                      'Closed',
-                      2,
-                      '${tradingService.closedTrades.length}',
-                    ),
-                  ],
-                ),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: AppColors.primaryGradient,
+        ),
+        child: _buildTradesContent(),
+      ),
+    );
+  }
 
-              // Trades List
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async {
-                    await tradingService.fetchTrades();
-                  },
-                  child: _buildTradesList(context, tradingService),
+  Widget _buildTradesContent() {
+    return Consumer<TradingService>(
+      builder: (context, tradingService, _) {
+        return Column(
+          children: [
+            // Tab Selector
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Row(
+                children: [
+                  _buildTabButton(
+                    context,
+                    'All',
+                    0,
+                    '${tradingService.trades.length}',
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  _buildTabButton(
+                    context,
+                    'Open',
+                    1,
+                    '${tradingService.activeTrades.length}',
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  _buildTabButton(
+                    context,
+                    'Closed',
+                    2,
+                    '${tradingService.closedTrades.length}',
+                  ),
+                ],
+              ),
+            ),
+
+            // Trades List
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await tradingService.fetchTrades();
+                },
+                child: _buildTradesList(context, tradingService),
                 ),
               ),
             ],

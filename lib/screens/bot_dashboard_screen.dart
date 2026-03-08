@@ -101,13 +101,17 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchBotStatus,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: AppColors.successGradient,
+        ),
+        child: RefreshIndicator(
+          onRefresh: _fetchBotStatus,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               // Connected Account Info
               if (_connectedAccount != null)
                 Container(
