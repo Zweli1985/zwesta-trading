@@ -23,6 +23,43 @@ class AppColors {
   // Chart colors
   static const Color buyColor = Color(0xFF4CAF50);
   static const Color sellColor = Color(0xFFF44336);
+
+  // Gradients
+  static const LinearGradient primaryGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFF1E88E5),
+      Color(0xFF1565C0),
+    ],
+  );
+
+  static const LinearGradient successGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFF4CAF50),
+      Color(0xFF388E3C),
+    ],
+  );
+
+  static const LinearGradient dangerGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFF44336),
+      Color(0xFFC62828),
+    ],
+  );
+
+  static const LinearGradient accentGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFFF6B6B),
+      Color(0xFFE63946),
+    ],
+  );
 }
 
 class AppSpacing {

@@ -78,7 +78,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _buildAppBar(),
-      body: _buildBody(),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: AppColors.primaryGradient,
+        ),
+        child: _buildBody(),
+      ),
       bottomNavigationBar: _buildBottomNavigationBar(),
       drawer: _buildDrawerMenu(),
     );
