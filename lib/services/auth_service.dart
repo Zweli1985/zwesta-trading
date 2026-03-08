@@ -6,15 +6,39 @@ import '../models/user.dart';
 import '../utils/constants.dart';
 
 class AuthService extends ChangeNotifier {
-  final SharedPreferences _prefs;
+  late SharedPreferences _prefs;
   
   User? _currentUser;
   String? _token;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isInitialized = false;
 
-  AuthService(this._prefs) {
-    _loadFromStorage();
+  AuthService() {
+    _initializePreferences();
+  }
+
+  Future<void> _initializePreferences() async {
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      _loadFromStorage();
+      _isInitialized = true;
+    } catch (e) {
+      debugPrint('SharedPreferences initialization error: $e');
+      // Set demo user as fallback
+      _token = 'demo_token_mobile';
+      _currentUser = User(
+        id: '123',
+        username: 'demo',
+        email: 'demo@zwesta.com',
+        firstName: 'Demo',
+        lastName: 'User',
+        profileImage: '',
+        accountType: 'Premium',
+      );
+      _isInitialized = true;
+    }
+    notifyListeners();
   }
 
   // Getters

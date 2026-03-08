@@ -7,7 +7,7 @@ import 'mock_data_provider.dart';
 import '../utils/environment_config.dart';
 
 class TradingService extends ChangeNotifier {
-  final String? _token;
+  late String? _token;
   String? _apiUrl;
   bool _useApi = false;
   bool _isConnected = false;
@@ -18,7 +18,7 @@ class TradingService extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
-  TradingService(this._token) {
+  TradingService(String? token) : _token = token {
     _apiUrl = EnvironmentConfig.apiUrl;
     // Try to use API in production, fall back to mock data
     _useApi = !EnvironmentConfig.offlineMode;
@@ -28,6 +28,18 @@ class TradingService extends ChangeNotifier {
         _checkApiConnection();
       } else {
         _initializeMockData();
+      }
+    } catch (e) {
+      _initializeMockData();
+    }
+  }
+
+  void updateToken(String? token) {
+    if (_token != token) {
+      _token = token;
+      notifyListeners();
+    }
+  }
       }
     } catch (e) {
       print('ERROR in TradingService initialization: $e');
