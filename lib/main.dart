@@ -27,6 +27,7 @@ void main() {
     EnvironmentConfig.setEnvironment(Environment.production);
   }
 
+  // Debug build - ready for testing
   runApp(const MyApp());
 }
 
@@ -84,4 +85,5 @@ class AuthWrapper extends StatelessWidget {
     );
   }
 }
+
 
