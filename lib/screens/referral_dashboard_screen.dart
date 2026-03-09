@@ -22,6 +22,9 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
   late Future<Map<String, dynamic>> _earningsData;
   late Future<List<dynamic>> _recruitsData;
   String _referralCode = '';
+  String _referralLink = '';
+  double _availableBalance = 0;
+  double _totalEarned = 0;
   bool _copied = false;
 
   @override
@@ -41,13 +44,34 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
         final data = jsonDecode(response.body);
         setState(() {
           _referralCode = data['referral_code'] ?? '';
+          _totalEarned = (data['total_earned'] ?? 0).toDouble();
+          _availableBalance = (data['available_balance'] ?? 0).toDouble();
         });
+        _fetchReferralLink(); // Fetch the shareable link
         return data;
       }
       return {};
     } catch (e) {
       print('Error fetching earnings: $e');
       return {};
+    }
+  }
+
+  Future<void> _fetchReferralLink() async {
+    if (_referralCode.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/referral/link/$_referralCode'),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _referralLink = data['referral_link'] ?? '';
+        });
+      }
+    } catch (e) {
+      print('Error fetching referral link: $e');
     }
   }
 
@@ -82,24 +106,117 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
     });
   }
 
-  void _shareReferralCode() {
-    // In production, use share plugin
-    final referralText =
-        'Join me on Zwesta Trading Bot! Use my referral code: $_referralCode\n\n'
-        'Get started with NO upfront payment and earn 5% commission from my profits!\n\n'
-        'Sign up here with my code to both earn rewards!';
+  Future<void> _submitWithdrawalRequest(
+    double amount,
+    String method,
+    String accountDetails,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/withdrawal/request'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': widget.userId,
+          'amount': amount,
+          'method': method,
+          'account_details': accountDetails,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Withdrawal request submitted! You\'ll receive \$${(amount * 0.99).toStringAsFixed(2)} after 1% fee.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() {
+          _earningsData = _fetchEarnings();
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${jsonDecode(response.body)['error'] ?? 'Failed to submit withdrawal'}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showWithdrawalDialog(double availableBalance) {
+    TextEditingController amountController = TextEditingController();
+    TextEditingController methodController = TextEditingController();
+    String selectedMethod = 'Bank Transfer';
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Share Referral'),
+        title: const Text('Request Withdrawal'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Share with Friends:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              Text(
+                'Available: \$${availableBalance.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Withdrawal Amount:'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  hintText: 'Enter amount',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  prefixText: '\$ ',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Withdrawal Method:'),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedMethod,
+                items: ['Bank Transfer', 'PayPal', 'Crypto Wallet', 'Card']
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
+                onChanged: (value) {
+                  selectedMethod = value ?? 'Bank Transfer';
+                },
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Account Details:'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: methodController,
+                decoration: InputDecoration(
+                  hintText: 'Enter account number, email, or wallet address',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                maxLines: 3,
               ),
               const SizedBox(height: 12),
               Container(
@@ -108,15 +225,108 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
                   color: Colors.blue.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
+                child: const Text(
+                  '⏱️ Withdrawals are processed within 2-3 business days.\n\n'
+                  '💰 Minimum withdrawal: \$10\n'
+                  '📊 Processing fee: 1% of amount',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final amount = double.tryParse(amountController.text) ?? 0;
+              if (amount < 10) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Minimum withdrawal is \$10')),
+                );
+              } else if (amount > availableBalance) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Amount exceeds available balance')),
+                );
+              } else {
+                _submitWithdrawalRequest(amount, selectedMethod, methodController.text);
+                Navigator.pop(context);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+            child: const Text('Request Withdrawal'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareReferralCode() {
+    final shareText = _referralLink.isNotEmpty
+        ? 'Join Zwesta Trading! 🚀\n\n'
+          'Earn money with NO upfront payment!\n\n'
+          'Use my referral link: $_referralLink\n\n'
+          'I earn 5% from your profits when you trade!\n\n'
+          'Let\'s make money together! 💰'
+        : 'Join me on Zwesta Trading Bot! Use my referral code: $_referralCode\n\n'
+          'Get started with NO upfront payment and earn 5% commission from my profits!';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Share Your Referral Link'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_referralLink.isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔗 Shareable Link:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SelectableText(
+                        _referralLink,
+                        style: const TextStyle(fontSize: 12, fontFamily: 'Courier'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              const Text(
+                '📱 Share Message:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: SelectableText(
-                  referralText,
+                  shareText,
                   style: const TextStyle(fontSize: 12),
                 ),
               ),
               const SizedBox(height: 16),
-              Text(
-                'Or share code: $_referralCode',
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              const Text(
+                'Code: $_referralCode',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],
           ),
@@ -124,13 +334,23 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: referralText));
+              Clipboard.setData(ClipboardData(text: _referralLink.isNotEmpty ? _referralLink : _referralCode));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Copied to clipboard')),
+                const SnackBar(content: Text('✅ Copied to clipboard')),
               );
               Navigator.pop(context);
             },
-            child: const Text('Copy Text'),
+            child: const Text('Copy Link/Code'),
+          ),
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: shareText));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('✅ Copied message to clipboard')),
+              );
+              Navigator.pop(context);
+            },
+            child: const Text('Copy Message'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -236,32 +456,101 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
                 }
 
                 final data = snapshot.data ?? {};
-                final totalEarned = (data['total_earned'] ?? 0.0).toDouble();
+                final totalEarned = _totalEarned;
+                final availableBalance = _availableBalance;
                 final totalClients = data['total_clients'] ?? 0;
                 final totalTransactions = data['total_transactions'] ?? 0;
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Earnings Summary',
-                      style: Theme.of(context).textTheme.titleLarge,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Earnings & Wallet',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        if (availableBalance > 0)
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              _showWithdrawalDialog(availableBalance);
+                            },
+                            icon: const Icon(Icons.wallet, size: 16),
+                            label: const Text('Withdraw'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 12),
+                    // Available Balance Card
+                    Card(
+                      color: Colors.green.withOpacity(0.15),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Available Balance',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '\$${availableBalance.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                const Text(
+                                  'Total Earned',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '\$${totalEarned.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     GridView.count(
-                      crossAxisCount: 3,
+                      crossAxisCount: 2,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
-                      childAspectRatio: 1.1,
+                      childAspectRatio: 1.2,
                       children: [
-                        _EarningsTile(
-                          label: 'Total Earned',
-                          value: '\$${totalEarned.toStringAsFixed(2)}',
-                          color: Colors.green,
-                          icon: Icons.trending_up,
-                        ),
                         _EarningsTile(
                           label: 'Active Clients',
                           value: totalClients.toString(),

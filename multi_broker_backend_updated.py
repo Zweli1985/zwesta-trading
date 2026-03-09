@@ -104,6 +104,24 @@ def init_database():
         )
     ''')
     
+    # Withdrawals table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            withdrawal_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            method TEXT NOT NULL,
+            account_details TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT,
+            processed_at TEXT,
+            fee REAL DEFAULT 0,
+            net_amount REAL,
+            admin_notes TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     logger.info("Database initialized")
@@ -259,6 +277,17 @@ class ReferralSystem:
             ''', (user_id,))
             
             earnings = dict(cursor.fetchone())
+            total_earned = earnings['total_earned'] or 0
+            
+            # Get total withdrawn
+            cursor.execute('''
+                SELECT SUM(amount) as total_withdrawn FROM withdrawals 
+                WHERE user_id = ? AND status IN ('approved', 'pending', 'processing')
+            ''', (user_id,))
+            
+            withdrawn = cursor.fetchone()
+            total_withdrawn = withdrawn['total_withdrawn'] or 0
+            available_balance = total_earned - total_withdrawn
             
             # Recent earnings
             cursor.execute('''
@@ -284,7 +313,9 @@ class ReferralSystem:
                 'referral_code': user_data['referral_code'],
                 'total_commission': user_data['total_commission'],
                 'total_clients': earnings['total_clients'] or 0,
-                'total_earned': earnings['total_earned'] or 0,
+                'total_earned': total_earned,
+                'available_balance': available_balance,
+                'total_withdrawn': total_withdrawn,
                 'total_transactions': earnings['total_transactions'] or 0,
                 'recent_earnings': recent
             }
@@ -2287,6 +2318,166 @@ def admin_dashboard():
     
     except Exception as e:
         logger.error(f"Error getting admin dashboard: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== WITHDRAWAL SYSTEM ====================
+@app.route('/api/withdrawal/request', methods=['POST'])
+def request_withdrawal():
+    """Request a withdrawal of earned commissions"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        amount = data.get('amount')
+        method = data.get('method')
+        account_details = data.get('account_details')
+        
+        if amount < 10:
+            return jsonify({'success': False, 'error': 'Minimum withdrawal is $10'}), 400
+        
+        # Check available balance
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT SUM(commission_amount) as total_earned FROM commissions 
+            WHERE earner_id = ?
+        ''', (user_id,))
+        
+        earnings = cursor.fetchone()
+        total_earned = earnings['total_earned'] or 0
+        
+        # Get withdrawn amount
+        cursor.execute('''
+            SELECT SUM(amount) as total_withdrawn FROM withdrawals 
+            WHERE user_id = ? AND status IN ('approved', 'pending', 'processing')
+        ''', (user_id,))
+        
+        withdrawn = cursor.fetchone()
+        total_withdrawn = withdrawn['total_withdrawn'] or 0
+        available_balance = total_earned - total_withdrawn
+        
+        if amount > available_balance:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Amount exceeds available balance'}), 400
+        
+        # Create withdrawal request
+        withdrawal_id = str(uuid.uuid4())
+        fee = amount * 0.01  # 1% fee
+        net_amount = amount - fee
+        created_at = datetime.now().isoformat()
+        
+        cursor.execute('''
+            INSERT INTO withdrawals (withdrawal_id, user_id, amount, method, account_details, status, created_at, fee, net_amount)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        ''', (withdrawal_id, user_id, amount, method, account_details, created_at, fee, net_amount))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Withdrawal request {withdrawal_id}: {user_id} - ${amount}")
+        
+        return jsonify({
+            'success': True,
+            'withdrawal_id': withdrawal_id,
+            'amount': amount,
+            'fee': fee,
+            'net_amount': net_amount,
+            'status': 'pending',
+            'message': 'Withdrawal request submitted. Withdrawals are processed in 2-3 business days.'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error requesting withdrawal: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/withdrawal/history/<user_id>', methods=['GET'])
+def get_withdrawal_history(user_id):
+    """Get user's withdrawal history"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT withdrawal_id, amount, method, status, created_at, processed_at, net_amount, fee
+            FROM withdrawals
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+        ''', (user_id,))
+        
+        withdrawals = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'withdrawals': withdrawals
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting withdrawal history: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/withdrawals', methods=['GET'])
+def admin_withdrawals():
+    """Admin endpoint to view all pending withdrawals"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT w.withdrawal_id, w.user_id, u.name, u.email, w.amount, w.method, 
+                   w.account_details, w.status, w.created_at, w.fee, w.net_amount
+            FROM withdrawals w
+            JOIN users u ON w.user_id = u.user_id
+            WHERE w.status = 'pending'
+            ORDER BY w.created_at ASC
+        ''')
+        
+        withdrawals = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'pending_withdrawals': withdrawals,
+            'total_pending': len(withdrawals),
+            'total_pending_amount': sum([float(w['amount']) for w in withdrawals])
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting admin withdrawals: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/withdrawal/<withdrawal_id>/approve', methods=['POST'])
+def approve_withdrawal(withdrawal_id):
+    """Admin endpoint to approve withdrawal"""
+    try:
+        data = request.get_json()
+        admin_notes = data.get('notes', '')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE withdrawals
+            SET status = 'approved', processed_at = ?, admin_notes = ?
+            WHERE withdrawal_id = ?
+        ''', (datetime.now().isoformat(), admin_notes, withdrawal_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Withdrawal {withdrawal_id} approved")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Withdrawal approved'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error approving withdrawal: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
