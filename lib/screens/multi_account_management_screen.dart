@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/environment_config.dart';
 
 class MultiAccountManagementScreen extends StatefulWidget {
   const MultiAccountManagementScreen({Key? key}) : super(key: key);
@@ -12,7 +13,7 @@ class MultiAccountManagementScreen extends StatefulWidget {
 
 class _MultiAccountManagementScreenState
     extends State<MultiAccountManagementScreen> {
-  final String _apiUrl = 'http://127.0.0.1:9000';
+  late String _apiUrl = EnvironmentConfig.apiUrl;
 
   List<Map<String, dynamic>> _accounts = [];
   List<Map<String, dynamic>> _availableBrokers = [];

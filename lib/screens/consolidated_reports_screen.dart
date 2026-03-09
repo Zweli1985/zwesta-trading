@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/environment_config.dart';
 import '../services/pdf_export_service.dart';
 
 class ConsolidatedReportsScreen extends StatefulWidget {
@@ -12,7 +13,7 @@ class ConsolidatedReportsScreen extends StatefulWidget {
 }
 
 class _ConsolidatedReportsScreenState extends State<ConsolidatedReportsScreen> {
-  final String _apiUrl = 'http://127.0.0.1:9000';
+  late String _apiUrl = EnvironmentConfig.apiUrl;
 
   Map<String, dynamic> _reportData = {};
   bool _isLoading = false;

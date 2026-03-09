@@ -86,13 +86,41 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
     // In production, use share plugin
     final referralText =
         'Join me on Zwesta Trading Bot! Use my referral code: $_referralCode\n\n'
-        'Get started with NO upfront payment and earn 5% commission from my profits!';
+        'Get started with NO upfront payment and earn 5% commission from my profits!\n\n'
+        'Sign up here with my code to both earn rewards!';
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Share Referral Code'),
-        content: Text(referralText),
+        title: const Text('Share Referral'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Share with Friends:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(
+                  referralText,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Or share code: $_referralCode',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () {

@@ -2186,6 +2186,110 @@ def validate_referral_code(referral_code):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/referral/link/<referral_code>', methods=['GET'])
+def get_referral_link(referral_code):
+    """Get shareable referral link"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT user_id, name FROM users WHERE referral_code = ?', (referral_code.upper(),))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user:
+            referral_link = f"https://yourapp.com/register?ref={referral_code.upper()}"
+            return jsonify({
+                'success': True,
+                'referral_code': referral_code.upper(),
+                'referral_link': referral_link,
+                'referrer_name': user['name'],
+                'message': f"Share this link to invite others: {referral_link}"
+            }), 200
+        else:
+            return jsonify({'success': False, 'error': 'Referral code not found'}), 404
+    
+    except Exception as e:
+        logger.error(f"Error getting referral link: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/dashboard', methods=['GET'])
+def admin_dashboard():
+    """Admin dashboard with all users, bots, and earnings"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get total users
+        cursor.execute('SELECT COUNT(*) as count FROM users')
+        total_users = cursor.fetchone()['count'] or 0
+        
+        # Get total active bots
+        total_bots = len([b for b in active_bots.values() if b.get('enabled', False)])
+        
+        # Get platform earnings (25% of all profits)
+        cursor.execute('SELECT SUM(commission_amount * 5) as total_earned FROM commissions')
+        platform_earnings_from_referrals = (cursor.fetchone()['total_earned'] or 0) / 5  # Divide back to get 25%
+        
+        # Calculate from actual bot profits
+        total_profit = sum([b.get('totalProfit', 0) for b in active_bots.values()])
+        platform_earnings = total_profit * 0.25  # 25% of all profits
+        
+        # Get all users with their bots
+        cursor.execute('SELECT user_id, name, email FROM users ORDER BY created_at DESC LIMIT 100')
+        users_list = [dict(row) for row in cursor.fetchall()]
+        
+        users_with_bots = []
+        for user in users_list:
+            # Find bots belonging to this user (simplified - would need more DB tracking)
+            user_bots = [
+                {
+                    'botId': bot_id,
+                    'strategy': bot_config.get('strategy', 'Unknown'),
+                    'profit': bot_config.get('totalProfit', 0)
+                }
+                for bot_id, bot_config in active_bots.items()
+            ]
+            
+            # Get user's commission info
+            cursor.execute('''
+                SELECT COUNT(DISTINCT client_id) as client_count, SUM(commission_amount) as total_commission
+                FROM commissions WHERE earner_id = ?
+            ''', (user['user_id'],))
+            
+            commission_data = dict(cursor.fetchone())
+            
+            users_with_bots.append({
+                'user_id': user['user_id'],
+                'name': user['name'],
+                'email': user['email'],
+                'bot_count': len(user_bots),
+                'bots': user_bots[:5],  # First 5 bots
+                'total_profit': sum([b.get('profit', 0) for b in user_bots]),
+                'recruiter_count': commission_data.get('client_count', 0),
+                'referral_earnings': commission_data.get('total_commission', 0)
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'total_users': total_users,
+            'total_bots': total_bots,
+            'total_profit': total_profit,
+            'platform_earnings': platform_earnings,
+            'referral_earnings': platform_earnings_from_referrals,
+            'commission_rate_platform': 0.25,
+            'commission_rate_referrer': 0.05,
+            'users': users_with_bots
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting admin dashboard: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== DUPLICATE DATABASE SECTION REMOVED ====================
 import random as rand
 
