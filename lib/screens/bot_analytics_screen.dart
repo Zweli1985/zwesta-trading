@@ -237,16 +237,6 @@ class _BotAnalyticsScreenState extends State<BotAnalyticsScreen> {
       );
     }
   }
-          } else if (index == 1) {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const BotDashboardScreen()),
-            );
-          }
-        },
-        currentIndex: 2,
-      ),
-    );
-  }
 
   Widget _buildStatusSection({
     required String runtimeFormatted,
