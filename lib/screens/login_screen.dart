@@ -91,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  _isLogin ? 'Welcome Back' : 'Create Your Account',"
+                  _isLogin ? 'Welcome Back' : 'Create Your Account',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
                     fontSize: 24,
