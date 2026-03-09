@@ -491,6 +491,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
           ),
         ),
       ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.grey[900],
         selectedItemColor: Colors.blue,
