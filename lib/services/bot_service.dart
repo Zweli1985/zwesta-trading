@@ -53,26 +53,34 @@ class BotService extends ChangeNotifier {
   BotService() {
     _apiUrl = EnvironmentConfig.apiUrl;
     // Initialize lazily when needed, not in constructor
+    print('🔧 BotService initialized');
+    print('🌐 API URL: $_apiUrl');
+    print('📱 Environment: ${EnvironmentConfig.currentEnvironment}');
     _checkBackendConnection();
   }
 
   /// Check if backend is available
   Future<void> _checkBackendConnection() async {
     try {
+      print('🔄 Checking backend connection to: $_apiUrl/api/health');
       final response = await http.get(
         Uri.parse('$_apiUrl/api/health'),
       ).timeout(const Duration(seconds: 5));
       
       _isConnected = response.statusCode == 200;
-      if (!_isConnected) {
+      if (_isConnected) {
+        print('✅ Backend connected successfully');
+        print('📊 Response: ${response.body}');
+      } else {
         _errorMessage = 'Backend connection failed: HTTP ${response.statusCode}';
-        print('Backend health check failed: ${response.statusCode}');
+        print('❌ Backend health check failed: ${response.statusCode}');
+        print('📄 Response: ${response.body}');
       }
       notifyListeners();
     } catch (e) {
       _isConnected = false;
       _errorMessage = 'Cannot connect to backend: $e';
-      print('Backend connection error: $e');
+      print('❌ Backend connection error: $e');
       notifyListeners();
     }
   }

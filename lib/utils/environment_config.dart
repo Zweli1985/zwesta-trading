@@ -34,7 +34,7 @@ class EnvironmentConfig {
   static bool? _overrideOfflineMode;
 
   static Environment _currentEnvironment = kDebugMode 
-      ? Environment.development 
+      ? Environment.staging  // Use VPS in debug mode (staging = VPS IP)
       : Environment.production;
 
   static Environment get currentEnvironment => _currentEnvironment;
