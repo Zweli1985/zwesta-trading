@@ -78,6 +78,66 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
     });
   }
 
+  Future<void> _deleteBot(String botId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Bot'),
+        content: Text('Are you sure you want to delete "$botId"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirm) return;
+
+    try {
+      final response = await http.delete(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/bot/delete/$botId'),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Bot "$botId" deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _fetchBotStatus();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Failed to delete bot'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error deleting bot: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _refreshTimer?.cancel();
@@ -461,25 +521,38 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                             ),
                             const SizedBox(height: 16),
 
-                            // Analytics Button
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          BotAnalyticsScreen(bot: bot),
+                            // Action Buttons
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              BotAnalyticsScreen(bot: bot),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.analytics),
+                                    label: const Text('View Analytics'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
                                     ),
-                                  );
-                                },
-                                icon: const Icon(Icons.analytics),
-                                label: const Text('View Detailed Analytics'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  onPressed: () => _deleteBot(bot['botId'] ?? 'Unknown'),
+                                  icon: const Icon(Icons.delete),
+                                  label: const Text('Delete'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),

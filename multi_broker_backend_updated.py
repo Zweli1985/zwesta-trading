@@ -1828,6 +1828,34 @@ def stop_bot(bot_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/bot/delete/<bot_id>', methods=['DELETE', 'POST'])
+def delete_bot(bot_id):
+    """Delete a trading bot permanently"""
+    try:
+        if bot_id not in active_bots:
+            return jsonify({'success': False, 'error': f'Bot {bot_id} not found'}), 404
+        
+        bot_config = active_bots[bot_id]
+        # Stop bot first if running
+        if bot_config.get('enabled', False):
+            bot_config['enabled'] = False
+        
+        # Remove bot from active_bots dictionary
+        del active_bots[bot_id]
+        
+        logger.info(f"Deleted bot {bot_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Bot {bot_id} deleted successfully',
+            'remainingBots': len(active_bots)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error deleting bot: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== COMMODITY MARKET DATA ====================
 import random as rand
 

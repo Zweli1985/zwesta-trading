@@ -337,39 +337,45 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Bot ID
-                  TextField(
-                    controller: _botIdController,
-                    decoration: InputDecoration(
-                      labelText: 'Bot ID',
-                      hintText: 'bot_trend_1',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  // Bot ID and Strategy (Side by Side)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _botIdController,
+                          decoration: InputDecoration(
+                            labelText: 'Bot ID',
+                            hintText: 'bot_trend_1',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Strategy Selection
-                  DropdownButtonFormField<String>(
-                    value: _selectedStrategy,
-                    decoration: InputDecoration(
-                      labelText: 'Strategy',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedStrategy,
+                          decoration: InputDecoration(
+                            labelText: 'Strategy',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          items: strategies.map((strategy) {
+                            return DropdownMenuItem(
+                              value: strategy,
+                              child: Text(strategy),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _selectedStrategy = value);
+                            }
+                          },
+                        ),
                       ),
-                    ),
-                    items: strategies.map((strategy) {
-                      return DropdownMenuItem(
-                        value: strategy,
-                        child: Text(strategy),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedStrategy = value);
-                      }
-                    },
+                    ],
                   ),
                   const SizedBox(height: 16),
 
