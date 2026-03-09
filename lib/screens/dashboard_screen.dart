@@ -22,6 +22,8 @@ import 'financials_screen.dart';
 import 'rentals_and_features_screen.dart';
 import 'multi_account_management_screen.dart';
 import 'consolidated_reports_screen.dart';
+import 'referral_dashboard_screen.dart';
+import 'admin_dashboard_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -947,6 +949,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           ),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.group_add),
+            title: const Text('My Referrals'),
+            subtitle: const Text('Invite friends & earn 5%'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ReferralDashboardScreen(),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.admin_panel_settings),
+            title: const Text('Admin Dashboard'),
+            subtitle: const Text('View all users & earnings'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminDashboardScreen(),
+                ),
+              );
+            },
+          ),
+          const Divider(),"
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Logout'),
