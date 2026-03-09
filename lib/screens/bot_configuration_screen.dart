@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../utils/environment_config.dart';
 import 'bot_dashboard_screen.dart';
 
 class BotConfigurationScreen extends StatefulWidget {
@@ -77,7 +78,7 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
   Future<void> _fetchCommodityData() async {
     try {
       final response = await http.get(
-        Uri.parse('http://localhost:9000/api/market/commodities'),
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/market/commodities'),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -119,7 +120,7 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
     try {
       // Create bot
       final createResponse = await http.post(
-        Uri.parse('http://localhost:9000/api/bot/create'),
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/bot/create'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'botId': _botIdController.text,
@@ -138,7 +139,7 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
 
       // Start bot
       final startResponse = await http.post(
-        Uri.parse('http://localhost:9000/api/bot/start'),
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/bot/start'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'botId': _botIdController.text}),
       ).timeout(const Duration(seconds: 10));

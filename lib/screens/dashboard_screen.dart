@@ -9,6 +9,7 @@ import '../services/bot_service.dart';
 import '../services/pdf_service.dart';
 import '../models/account.dart';
 import '../utils/constants.dart';
+import '../utils/environment_config.dart';
 import '../widgets/custom_widgets.dart';
 import '../widgets/logo_widget.dart';
 import 'trades_screen.dart';
@@ -49,7 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
 
       final response = await http
-          .get(Uri.parse('http://localhost:9000/api/bot/status'))
+          .get(Uri.parse('${EnvironmentConfig.apiUrl}/api/bot/status'))
           .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
