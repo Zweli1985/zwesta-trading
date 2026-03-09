@@ -78,12 +78,11 @@ class _TradesScreenState extends State<TradesScreen> {
                   await tradingService.fetchTrades();
                 },
                 child: _buildTradesList(context, tradingService),
-                ),
               ),
-            ],
-          );
-        },
-      ),
+            ),
+          ],
+        );
+      },
     );
   }
 
