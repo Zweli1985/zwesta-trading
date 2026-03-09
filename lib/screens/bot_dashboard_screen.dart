@@ -63,7 +63,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
   }
 
   void _startAutoRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       if (mounted) {
         _fetchBotStatus();
         final tradingService =

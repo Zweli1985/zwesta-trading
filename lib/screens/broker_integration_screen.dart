@@ -541,7 +541,10 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
               children: [
                 const Text(
                   '📱 How to get your MT5 credentials:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
