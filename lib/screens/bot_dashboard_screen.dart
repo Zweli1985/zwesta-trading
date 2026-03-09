@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../services/bot_service.dart';
 import '../services/trading_service.dart';
 import '../widgets/custom_widgets.dart';
+import '../utils/constants.dart';
 import 'bot_analytics_screen.dart';
 import 'bot_configuration_screen.dart';
 
