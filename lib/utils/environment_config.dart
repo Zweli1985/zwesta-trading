@@ -9,8 +9,8 @@ class EnvironmentConfig {
 
   // Default API URLs - can be overridden by environment variables
   static const String _devApiUrl = 'http://localhost:9000';
-  static const String _stagingApiUrl = 'http://38.247.146.198:9000';
-  static const String _prodApiUrl = 'http://38.247.146.198:9000';
+  static const String _stagingApiUrl = 'http://localhost:9000'; // For testing on VPS
+  static const String _prodApiUrl = 'http://localhost:9000'; // Change to 38.247.146.198:9000 when deploying to real phones
 
   static const String _devApiKey = 'dev_key_12345';
   static const String _stagingApiKey = 'staging_key_12345';
