@@ -94,110 +94,149 @@ class _BotAnalyticsScreenState extends State<BotAnalyticsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(
-      color: Colors.white,
-      fontWeight: FontWeight.bold,
-      fontSize: 14,
-    );
+    try {
+      const textStyle = TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.bold,
+        fontSize: 14,
+      );
 
-    final totalProfit = widget.bot['totalProfit'] ?? 0;
-    final totalTrades = widget.bot['totalTrades'] ?? 0;
-    final winRate = widget.bot['winRate'] ?? 0;
-    final roi = widget.bot['roi'] ?? 0;
-    final runtimeFormatted = widget.bot['runtimeFormatted'] ?? '0h 0m';
-    final dailyProfit = widget.bot['dailyProfit'] ?? 0;
-    final avgProfitPerTrade = widget.bot['avgProfitPerTrade'] ?? 0;
-    final maxDrawdown = widget.bot['maxDrawdown'] ?? 0;
-    final botStatus = widget.bot['status'] ?? 'Unknown';
+      final totalProfit = (widget.bot['totalProfit'] ?? 0).toDouble();
+      final totalTrades = widget.bot['totalTrades']?.toInt() ?? 0;
+      final winRate = (widget.bot['winRate'] ?? 0).toDouble();
+      final roi = (widget.bot['roi'] ?? 0).toDouble();
+      final runtimeFormatted = widget.bot['runtimeFormatted'] ?? '0h 0m';
+      final dailyProfit = (widget.bot['dailyProfit'] ?? 0).toDouble();
+      final avgProfitPerTrade = (widget.bot['avgProfitPerTrade'] ?? 0).toDouble();
+      final maxDrawdown = (widget.bot['maxDrawdown'] ?? 0).toDouble();
+      final botStatus = widget.bot['status'] ?? 'Unknown';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.bot['botId'] ?? 'Bot Analytics'),
-        backgroundColor: Colors.grey[900],
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const BotConfigurationScreen()),
-              );
-            },
-            icon: const Icon(Icons.settings),
-            label: const Text('Config'),
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(widget.bot['botId'] ?? 'Bot Analytics'),
+          backgroundColor: Colors.grey[900],
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-        ],
-      ),
-      backgroundColor: Colors.grey[800],
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status and Runtime Section
-            _buildStatusSection(
-              runtimeFormatted: runtimeFormatted,
-              status: botStatus,
-              dailyProfit: dailyProfit,
+          actions: [
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const BotConfigurationScreen()),
+                );
+              },
+              icon: const Icon(Icons.settings),
+              label: const Text('Config'),
             ),
-            const SizedBox(height: 24),
-
-            // Key Metrics Grid
-            _buildMetricsGrid(
-              totalProfit: totalProfit,
-              totalTrades: totalTrades,
-              winRate: winRate,
-              roi: roi,
-              avgProfitPerTrade: avgProfitPerTrade,
-              maxDrawdown: maxDrawdown,
-            ),
-            const SizedBox(height: 24),
-
-            // Profit Over Time Chart
-            _buildSectionHeader('Profit Over Time'),
-            _buildProfitChart(),
-            const SizedBox(height: 24),
-
-            // Trades Growth Chart
-            _buildSectionHeader('Trades Growth'),
-            _buildTradesChart(),
-            const SizedBox(height: 24),
-
-            // Daily Profit Distribution
-            if (widget.bot['dailyProfits'] != null)
-              _buildDailyProfitsSection(),
-
-            // Trade History
-            const SizedBox(height: 24),
-            _buildSectionHeader('Recent Trades'),
-            _buildTradeHistorySection(),
           ],
         ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: Colors.grey[900],
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
+        backgroundColor: Colors.grey[850],
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Status and Runtime Section
+              _buildStatusSection(
+                runtimeFormatted: runtimeFormatted,
+                status: botStatus,
+                dailyProfit: dailyProfit,
+              ),
+              const SizedBox(height: 24),
+
+              // Key Metrics Grid
+              _buildMetricsGrid(
+                totalProfit: totalProfit,
+                totalTrades: totalTrades,
+                winRate: winRate,
+                roi: roi,
+                avgProfitPerTrade: avgProfitPerTrade,
+                maxDrawdown: maxDrawdown,
+              ),
+              const SizedBox(height: 24),
+
+              // Profit Over Time Chart
+              _buildSectionHeader('Profit Over Time'),
+              _buildProfitChart(),
+              const SizedBox(height: 24),
+
+              // Trades Growth Chart
+              _buildSectionHeader('Trades Growth'),
+              _buildTradesChart(),
+              const SizedBox(height: 24),
+
+              // Daily Profit Distribution
+              if (widget.bot['dailyProfits'] != null && (widget.bot['dailyProfits'] as Map).isNotEmpty)
+                _buildDailyProfitsSection(),
+
+              // Trade History
+              const SizedBox(height: 24),
+              _buildSectionHeader('Recent Trades'),
+              _buildTradeHistorySection(),
+            ],
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          backgroundColor: Colors.grey[900],
+          selectedItemColor: Colors.blue,
+          unselectedItemColor: Colors.grey,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.analytics),
+              label: 'Analytics',
+            ),
+          ],
+          onTap: (index) {
+            if (index == 0) {
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }
+          },
+        ),
+      );
+    } catch (e) {
+      print('Error building BotAnalyticsScreen: $e');
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Bot Analytics'),
+          backgroundColor: Colors.grey[900],
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.analytics),
-            label: 'Analytics',
+        ),
+        backgroundColor: Colors.grey[850],
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, color: Colors.red[400], size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'Error loading analytics',
+                style: TextStyle(color: Colors.red[400]),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                e.toString(),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-        ],
-        onTap: (index) {
-          if (index == 0) {
-            Navigator.of(context).popUntil((route) => route.isFirst);
+        ),
+      );
+    }
+  }
           } else if (index == 1) {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const BotDashboardScreen()),
