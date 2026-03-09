@@ -96,8 +96,23 @@ class BotService extends ChangeNotifier {
         await _checkBackendConnection();
       }
 
+      // Get user_id from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('user_id');
+      final sessionToken = prefs.getString('auth_token');
+
+      String url = '$_apiUrl/api/bot/status';
+      if (userId != null && userId.isNotEmpty) {
+        url += '?user_id=$userId';
+      }
+
       final response = await http.get(
-        Uri.parse('$_apiUrl/api/bot/status'),
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (sessionToken != null && sessionToken.isNotEmpty)
+            'X-Session-Token': sessionToken,
+        },
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -139,11 +154,27 @@ class BotService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Get session token and user_id from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('auth_token');
+      final userId = prefs.getString('user_id');
+
+      if (sessionToken == null || sessionToken.isEmpty) {
+        _errorMessage = 'Session expired. Please login again.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       final response = await http.post(
         Uri.parse('$_apiUrl/api/bot/create'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': sessionToken,
+        },
         body: jsonEncode({
           'botId': botId,
+          'user_id': userId,
           'accountId': accountId,
           'symbols': symbols,
           'strategy': strategy,
@@ -163,8 +194,11 @@ class BotService extends ChangeNotifier {
           await fetchActiveBots();
           return true;
         }
+      } else if (response.statusCode == 401) {
+        _errorMessage = 'Session expired. Please login again.';
+      } else {
+        _errorMessage = jsonDecode(response.body)['error'] ?? 'Failed to create bot';
       }
-      _errorMessage = 'Failed to create bot on backend';
       return false;
     } catch (e) {
       _errorMessage = 'Error creating bot: $e';
@@ -183,9 +217,22 @@ class BotService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('auth_token');
+
+      if (sessionToken == null || sessionToken.isEmpty) {
+        _errorMessage = 'Session expired. Please login again.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       final response = await http.post(
         Uri.parse('$_apiUrl/api/bot/start'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': sessionToken,
+        },
         body: jsonEncode({'botId': botId}),
       ).timeout(const Duration(seconds: 10));
 
@@ -196,8 +243,11 @@ class BotService extends ChangeNotifier {
           await fetchActiveBots();
           return true;
         }
+      } else if (response.statusCode == 401) {
+        _errorMessage = 'Session expired. Please login again.';
+      } else {
+        _errorMessage = jsonDecode(response.body)['error'] ?? 'Failed to start bot';
       }
-      _errorMessage = 'Failed to start bot';
       return false;
     } catch (e) {
       _errorMessage = 'Error starting bot: $e';
@@ -216,8 +266,22 @@ class BotService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('auth_token');
+
+      if (sessionToken == null || sessionToken.isEmpty) {
+        _errorMessage = 'Session expired. Please login again.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       final response = await http.post(
         Uri.parse('$_apiUrl/api/bot/stop/$botId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': sessionToken,
+        },
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -227,8 +291,11 @@ class BotService extends ChangeNotifier {
           await fetchActiveBots();
           return true;
         }
+      } else if (response.statusCode == 401) {
+        _errorMessage = 'Session expired. Please login again.';
+      } else {
+        _errorMessage = jsonDecode(response.body)['error'] ?? 'Failed to stop bot';
       }
-      _errorMessage = 'Failed to stop bot';
       return false;
     } catch (e) {
       _errorMessage = 'Error stopping bot: $e';
