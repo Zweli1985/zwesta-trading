@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../utils/environment_config.dart';
 import '../utils/constants.dart';
@@ -47,6 +48,22 @@ class _ReferralDashboardScreenState extends State<ReferralDashboardScreen> {
           _totalEarned = (data['total_earned'] ?? 0).toDouble();
           _availableBalance = (data['available_balance'] ?? 0).toDouble();
         });
+        
+        // If referral code is still empty, try getting from shared preferences (from registration)
+        if (_referralCode.isEmpty) {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            final storedCode = prefs.getString('referral_code');
+            if (storedCode != null && storedCode.isNotEmpty) {
+              setState(() {
+                _referralCode = storedCode;
+              });
+            }
+          } catch (e) {
+            print('Error loading referral code from storage: $e');
+          }
+        }
+        
         _fetchReferralLink(); // Fetch the shareable link
         return data;
       }

@@ -75,12 +75,23 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo Header
+                // Logo Header with Container
                 SizedBox(height: MediaQuery.of(context).size.height * 0.05),
-                const LogoWidget(size: 200, showText: true),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.15),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: const LogoWidget(size: 140, showText: true),
+                ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  _isLogin ? 'Welcome Back' : 'Create Your Account',
+                  _isLogin ? 'Welcome Back' : 'Create Your Account',"
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
                     fontSize: 24,

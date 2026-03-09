@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/user.dart';
 import '../utils/constants.dart';
+import '../utils/environment_config.dart';
 
 class AuthService extends ChangeNotifier {
   late SharedPreferences _prefs;
@@ -116,28 +117,50 @@ class AuthService extends ChangeNotifier {
         throw Exception('All fields are required');
       }
 
-      // Mock API call
-      await Future.delayed(const Duration(seconds: 2));
+      // Call real backend API
+      final response = await http.post(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/user/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': '$firstName $lastName',
+          'email': email,
+          'username': username,
+          'password': password,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-      _token = 'mock_token_${DateTime.now().millisecondsSinceEpoch}';
-      _currentUser = User(
-        id: '${DateTime.now().millisecondsSinceEpoch}',
-        username: username,
-        email: email,
-        firstName: firstName,
-        lastName: lastName,
-        accountType: 'Standard',
-      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        _token = 'session_token_${DateTime.now().millisecondsSinceEpoch}';
+        _currentUser = User(
+          id: data['user_id'] ?? '${DateTime.now().millisecondsSinceEpoch}',
+          username: username,
+          email: email,
+          firstName: firstName,
+          lastName: lastName,
+          accountType: 'Standard',
+        );
 
-      // Save to storage
-      await _prefs.setString('auth_token', _token!);
-      await _prefs.setString('current_user', jsonEncode(_currentUser!.toJson()));
+        // Save referral code to preferences for display on dashboard
+        final referralCode = data['referral_code'] ?? '';
+        await _prefs.setString('referral_code', referralCode);
+        await _prefs.setString('user_id', _currentUser!.id);
 
-      _isLoading = false;
-      notifyListeners();
-      return true;
+        // Save to storage
+        await _prefs.setString('auth_token', _token!);
+        await _prefs.setString('current_user', jsonEncode(_currentUser!.toJson()));
+
+        _isLoading = false;
+        _errorMessage = 'Registration successful! Your referral code: $referralCode';
+        notifyListeners();
+        return true;
+      } else {
+        final data = jsonDecode(response.body);
+        throw Exception(data['error'] ?? 'Registration failed');
+      }
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = 'Registration Error: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
       return false;
