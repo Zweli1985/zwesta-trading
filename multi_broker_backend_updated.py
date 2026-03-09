@@ -8,7 +8,10 @@ Updated with MT5 Demo Credentials
 import os
 import json
 import time
-from datetime import datetime
+import sqlite3
+import uuid
+import hashlib
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
@@ -48,6 +51,246 @@ class BrokerType(Enum):
     FXOPEN = "fxopen"
     EXNESS = "exness"
     DARWINEX = "darwinex"
+
+
+# ==================== DATABASE SETUP ====================
+DATABASE_PATH = 'zwesta_trading.db'
+
+def init_database():
+    """Initialize SQLite database with referral and commission tables"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            referrer_id TEXT,
+            referral_code TEXT UNIQUE,
+            created_at TEXT,
+            total_commission REAL DEFAULT 0,
+            FOREIGN KEY (referrer_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    # Commission tracking table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS commissions (
+            commission_id TEXT PRIMARY KEY,
+            earner_id TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            bot_id TEXT,
+            profit_amount REAL,
+            commission_rate REAL DEFAULT 0.05,
+            commission_amount REAL,
+            created_at TEXT,
+            FOREIGN KEY (earner_id) REFERENCES users(user_id),
+            FOREIGN KEY (client_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    # Referral tracking table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS referrals (
+            referral_id TEXT PRIMARY KEY,
+            referrer_id TEXT NOT NULL,
+            referred_user_id TEXT NOT NULL,
+            created_at TEXT,
+            status TEXT DEFAULT 'active',
+            FOREIGN KEY (referrer_id) REFERENCES users(user_id),
+            FOREIGN KEY (referred_user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    logger.info("Database initialized")
+
+def get_db_connection():
+    """Get database connection"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# Initialize database on startup
+init_database()
+
+
+# ==================== REFERRAL SYSTEM ====================
+class ReferralSystem:
+    """Handles referral code generation, tracking, and commission calculation"""
+    
+    @staticmethod
+    def generate_referral_code():
+        """Generate unique 8-character referral code"""
+        return uuid.uuid4().hex[:8].upper()
+    
+    @staticmethod
+    def register_user(email: str, name: str, referral_code: Optional[str] = None) -> Dict:
+        """Register new user with optional referrer"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            user_id = str(uuid.uuid4())
+            new_referral_code = ReferralSystem.generate_referral_code()
+            created_at = datetime.now().isoformat()
+            
+            # Check if referral code is valid
+            referrer_id = None
+            if referral_code:
+                cursor.execute('SELECT user_id FROM users WHERE referral_code = ?', (referral_code.upper(),))
+                referrer = cursor.fetchone()
+                if referrer:
+                    referrer_id = referrer['user_id']
+                    logger.info(f"Valid referrer found: {referrer_id}")
+            
+            # Insert new user
+            cursor.execute('''
+                INSERT INTO users (user_id, email, name, referrer_id, referral_code, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, email, name, referrer_id, new_referral_code, created_at))
+            
+            # Create referral record if referrer exists
+            if referrer_id:
+                referral_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO referrals (referral_id, referrer_id, referred_user_id, created_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (referral_id, referrer_id, user_id, created_at))
+                logger.info(f"Referral created: {referrer_id} -> {user_id}")
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'user_id': user_id,
+                'referral_code': new_referral_code,
+                'referrer_id': referrer_id,
+                'message': 'User registered successfully'
+            }
+        except sqlite3.IntegrityError as e:
+            logger.error(f"Email already exists: {e}")
+            return {'success': False, 'error': 'Email already registered'}
+        except Exception as e:
+            logger.error(f"Error registering user: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    @staticmethod
+    def add_commission(earner_id: str, client_id: str, profit_amount: float, bot_id: str) -> Dict:
+        """Calculate and add commission for profit generated by referred client"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # 5% commission to referrer from client profits
+            commission_rate = 0.05
+            commission_amount = profit_amount * commission_rate
+            
+            commission_id = str(uuid.uuid4())
+            created_at = datetime.now().isoformat()
+            
+            # Record commission
+            cursor.execute('''
+                INSERT INTO commissions 
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at))
+            
+            # Update user total commission
+            cursor.execute('''
+                UPDATE users SET total_commission = total_commission + ? WHERE user_id = ?
+            ''', (commission_amount, earner_id))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Commission added: {earner_id} earned ${commission_amount:.2f} from {client_id}")
+            return {
+                'success': True,
+                'commission_id': commission_id,
+                'commission_amount': commission_amount
+            }
+        except Exception as e:
+            logger.error(f"Error adding commission: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    @staticmethod
+    def get_recruits(user_id: str) -> List[Dict]:
+        """Get all users recruited by this user"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT u.user_id, u.email, u.name, u.created_at, u.total_commission
+                FROM users u
+                INNER JOIN referrals r ON u.user_id = r.referred_user_id
+                WHERE r.referrer_id = ? AND r.status = 'active'
+                ORDER BY r.created_at DESC
+            ''', (user_id,))
+            
+            recruits = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+            
+            return recruits
+        except Exception as e:
+            logger.error(f"Error getting recruits: {e}")
+            return []
+    
+    @staticmethod
+    def get_earning_recap(user_id: str) -> Dict:
+        """Get commission earnings summary for user"""
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Total earnings from all recruits
+            cursor.execute('''
+                SELECT 
+                    COUNT(DISTINCT client_id) as total_clients,
+                    SUM(commission_amount) as total_earned,
+                    COUNT(*) as total_transactions
+                FROM commissions
+                WHERE earner_id = ?
+            ''', (user_id,))
+            
+            earnings = dict(cursor.fetchone())
+            
+            # Recent earnings
+            cursor.execute('''
+                SELECT c.commission_amount, c.created_at, u.name
+                FROM commissions c
+                LEFT JOIN users u ON c.client_id = u.user_id
+                WHERE c.earner_id = ?
+                ORDER BY c.created_at DESC
+                LIMIT 10
+            ''', (user_id,))
+            
+            recent = [dict(row) for row in cursor.fetchall()]
+            
+            # Get user details
+            cursor.execute('SELECT referral_code, total_commission FROM users WHERE user_id = ?', (user_id,))
+            user_data = cursor.fetchone()
+            conn.close()
+            
+            if not user_data:
+                return {}
+            
+            return {
+                'referral_code': user_data['referral_code'],
+                'total_commission': user_data['total_commission'],
+                'total_clients': earnings['total_clients'] or 0,
+                'total_earned': earnings['total_earned'] or 0,
+                'total_transactions': earnings['total_transactions'] or 0,
+                'recent_earnings': recent
+            }
+        except Exception as e:
+            logger.error(f"Error getting earning recap: {e}")
+            return {}
 
 
 class BrokerConnection:
@@ -1856,7 +2099,94 @@ def delete_bot(bot_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ==================== COMMODITY MARKET DATA ====================
+# ==================== REFERRAL API ENDPOINTS ====================
+@app.route('/api/user/register', methods=['POST'])
+def register_user():
+    """Register new user with optional referral code"""
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        name = data.get('name')
+        referral_code = data.get('referral_code')  # Optional
+        
+        if not email or not name:
+            return jsonify({'success': False, 'error': 'Email and name required'}), 400
+        
+        result = ReferralSystem.register_user(email, name, referral_code)
+        return jsonify(result), 200 if result['success'] else 400
+    
+    except Exception as e:
+        logger.error(f"Error in register_user: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/<user_id>/recruits', methods=['GET'])
+def get_recruits(user_id):
+    """Get all users recruited by this user"""
+    try:
+        recruits = ReferralSystem.get_recruits(user_id)
+        
+        return jsonify({
+            'success': True,
+            'recruits': recruits,
+            'total_recruits': len(recruits)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting recruits: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/<user_id>/earnings', methods=['GET'])
+def get_earnings(user_id):
+    """Get commission earnings summary"""
+    try:
+        recap = ReferralSystem.get_earning_recap(user_id)
+        
+        return jsonify({
+            'success': True,
+            **recap
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting earnings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/referral/validate/<referral_code>', methods=['GET'])
+def validate_referral_code(referral_code):
+    """Check if referral code is valid"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT user_id, name, email FROM users WHERE referral_code = ?
+        ''', (referral_code.upper(),))
+        
+        referrer = cursor.fetchone()
+        conn.close()
+        
+        if referrer:
+            return jsonify({
+                'success': True,
+                'valid': True,
+                'referrer_name': referrer['name'],
+                'referrer_email': referrer['email']
+            }), 200
+        else:
+            return jsonify({
+                'success': True,
+                'valid': False,
+                'message': 'Referral code not found'
+            }), 404
+    
+    except Exception as e:
+        logger.error(f"Error validating referral code: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== DUPLICATE DATABASE SECTION REMOVED ====================
 import random as rand
 
 COMMODITIES = {
