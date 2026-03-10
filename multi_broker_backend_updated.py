@@ -1999,7 +1999,27 @@ active_bots = {}
 @app.route('/api/bot/create', methods=['POST'])
 @require_session
 def create_bot():
-    """Create and start a new trading bot for a user"""
+    """Create and start a new trading bot for a user
+    
+    Supports HYBRID MODE:
+    - DEMO: No MT5 credentials required, uses shared demo account
+    - LIVE: User provides MT5 credentials, bot uses their account
+    
+    Request body:
+    {
+        "botId": "optional_bot_name",
+        "symbols": ["EURUSD", "XAUUSD"],
+        "strategy": "Trend Following",
+        "riskPerTrade": 100,
+        "maxDailyLoss": 500,
+        "mode": "demo" or "live",  // optional, defaults to "demo"
+        "mt5_credentials": {  // optional, only for live mode
+            "account_number": "104017418",
+            "password": "*6RjhRvH",
+            "server": "MetaQuotes-Demo"
+        }
+    }
+    """
     try:
         data = request.json
         if not data:
@@ -2017,20 +2037,61 @@ def create_bot():
             conn.close()
             return jsonify({'success': False, 'error': 'User not found'}), 404
         
+        # Bot configuration
         bot_id = data.get('botId') or f"bot_{user_id}_{int(datetime.now().timestamp())}"
-        account_id = data.get('accountId', 'Default MT5')
         symbols = data.get('symbols', ['EURUSD'])
         strategy = data.get('strategy', 'Trend Following')
         risk_per_trade = float(data.get('riskPerTrade', 100))
         max_daily_loss = float(data.get('maxDailyLoss', 500))
         trading_enabled = data.get('enabled', True)
+        mode = data.get('mode', 'demo').lower()  # 'demo' or 'live'
+        
+        # HYBRID MODE LOGIC
+        credential_id = None
+        account_id = None
+        broker_name = 'MT5'
+        
+        if mode == 'live':
+            # LIVE MODE: User provides their MT5 credentials
+            mt5_creds = data.get('mt5_credentials')
+            
+            if not mt5_creds:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Live mode requires mt5_credentials'}), 400
+            
+            account_number = mt5_creds.get('account_number')
+            password = mt5_creds.get('password')
+            server = mt5_creds.get('server')
+            
+            if not all([account_number, password, server]):
+                conn.close()
+                return jsonify({'success': False, 'error': 'Missing MT5 credentials (account_number, password, server)'}), 400
+            
+            # Store credentials in broker_credentials table
+            credential_id = str(uuid.uuid4())
+            created_at = datetime.now().isoformat()
+            
+            cursor.execute('''
+                INSERT INTO broker_credentials 
+                (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            ''', (credential_id, user_id, broker_name, account_number, password, server, 1, created_at, created_at))
+            
+            account_id = f"User_{user_id}_{account_number}"
+            logger.info(f"Bot {bot_id}: LIVE MODE - Using user's MT5 account {account_number}")
+        
+        else:
+            # DEMO MODE: Use shared demo MT5 account (no credentials needed)
+            account_id = 'Demo MT5 - XM Global'  # Shared demo account
+            mode = 'demo'
+            logger.info(f"Bot {bot_id}: DEMO MODE - Using shared demo account {MT5_CONFIG['account']}")
         
         # Store bot in database
         created_at = datetime.now().isoformat()
         cursor.execute('''
-            INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, created_at, created_at))
+            INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, broker_account_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, account_id, created_at, created_at))
         
         conn.commit()
         conn.close()
@@ -2041,6 +2102,9 @@ def create_bot():
             'botId': bot_id,
             'user_id': user_id,
             'accountId': account_id,
+            'brokerName': broker_name,
+            'mode': mode,  # 'demo' or 'live'
+            'credentialId': credential_id,  # None for demo, UUID for live
             'symbols': symbols,
             'strategy': strategy,
             'riskPerTrade': risk_per_trade,
@@ -2062,14 +2126,23 @@ def create_bot():
             'peakProfit': 0,
         }
         
-        logger.info(f"Created bot {bot_id} for user {user_id}: {strategy}")
+        logger.info(f"Created bot {bot_id} for user {user_id}: {strategy} ({mode} mode)")
         
         return jsonify({
             'success': True,
             'botId': bot_id,
             'user_id': user_id,
-            'message': f'Bot {bot_id} created successfully',
-            'config': active_bots[bot_id]
+            'mode': mode,
+            'credentialId': credential_id,
+            'accountId': account_id,
+            'message': f'Bot {bot_id} created successfully in {mode.upper()} mode',
+            'config': {
+                'botId': bot_id,
+                'mode': mode,
+                'accountId': account_id,
+                'symbols': symbols,
+                'strategy': strategy,
+            }
         }), 200
     
     except Exception as e:
@@ -2080,7 +2153,12 @@ def create_bot():
 @app.route('/api/bot/start', methods=['POST'])
 @require_session
 def start_bot():
-    """Start automatic trading for a bot with intelligent strategy switching"""
+    """Start automatic trading for a bot with intelligent strategy switching
+    
+    Supports HYBRID MODE:
+    - DEMO: Trades using shared demo MT5 account
+    - LIVE: Trades using user's real MT5 account (if credentials stored)
+    """
     try:
         data = request.json
         bot_id = data.get('botId')
@@ -2102,10 +2180,45 @@ def start_bot():
         cursor = conn.cursor()
         cursor.execute('SELECT user_id FROM user_bots WHERE bot_id = ?', (bot_id,))
         db_bot = cursor.fetchone()
-        conn.close()
         
         if not db_bot or db_bot['user_id'] != user_id:
+            conn.close()
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
+        
+        # HYBRID MODE: Check if LIVE mode and retrieve credentials
+        bot_mode = bot.get('mode', 'demo')
+        bot_credentials = None
+        
+        if bot_mode == 'live':
+            credential_id = bot.get('credentialId')
+            if credential_id:
+                # Retrieve user's MT5 credentials from database
+                cursor.execute('''
+                    SELECT credential_id, broker_name, account_number, password, server, is_live
+                    FROM broker_credentials
+                    WHERE credential_id = ? AND user_id = ? AND is_active = 1
+                ''', (credential_id, user_id))
+                
+                cred_row = cursor.fetchone()
+                if cred_row:
+                    bot_credentials = {
+                        'account_number': cred_row['account_number'],
+                        'password': cred_row['password'],
+                        'server': cred_row['server'],
+                        'is_live': cred_row['is_live']
+                    }
+                    logger.info(f"Bot {bot_id}: LIVE MODE - Using user's MT5 account {bot_credentials['account_number']}")
+                else:
+                    conn.close()
+                    return jsonify({'success': False, 'error': 'MT5 credentials not found or inactive'}), 404
+            else:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Live mode bot missing credential_id'}), 400
+        else:
+            # DEMO MODE: Use shared demo account
+            logger.info(f"Bot {bot_id}: DEMO MODE - Using shared MT5 account {MT5_CONFIG['account']}")
+        
+        conn.close()
         
         import random
         bot_config = active_bots[bot_id]
@@ -2672,7 +2785,6 @@ def get_user_profile(user_id):
     # Verify user is accessing only their own profile
     if request.user_id != user_id:
         return jsonify({'success': False, 'error': 'Unauthorized: Cannot access other user profiles'}), 403
-    """Get user profile and their associated data"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
