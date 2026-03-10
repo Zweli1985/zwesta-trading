@@ -262,13 +262,6 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
       setState(() => _isCreating = false);
     }
   }
-      }
-    } catch (e) {
-      _showError('Error: ${e.toString()}');
-    } finally {
-      setState(() => _isCreating = false);
-    }
-  }
 
   void _resetForm() {
     _botIdController.text = 'bot_${DateTime.now().millisecondsSinceEpoch}';
