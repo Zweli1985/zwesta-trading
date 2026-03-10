@@ -106,36 +106,23 @@ class BrokerConnectionService {
         final data = jsonDecode(response.body);
         
         if (data['success'] == true) {
-          // Backend confirmed connection
-          final isDemo = accountNumber == 'demo' || accountNumber == '136372035' || accountNumber == '104017418';
-          final balance = (data['balance'] ?? 10000.0).toDouble();
+          // Backend returns: credential_id, broker, account_number, balance, status, etc.
+          final credentialId = data['credential_id'] as String?;
+          final balance = (data['balance'] ?? 10000.0);
 
-          final account = BrokerAccount(
-            id: '${broker}_${accountNumber}_${DateTime.now().millisecondsSinceEpoch}',
-            brokerName: broker,
-            accountNumber: accountNumber,
-            server: server,
-            isDemo: isDemo,
-            accountBalance: balance,
-            leverage: 100,
-            spreadAverage: 1.5,
-            createdAt: DateTime.now(),
-            lastConnected: DateTime.now(),
-            isActive: true,
-            connectionStatus: 'CONNECTED',
-          );
-
-          _accountCache[account.id] = account;
-          print('✅ Connection successful! Balance: \$${balance.toStringAsFixed(2)}');
+          print('✅ Connection successful! Credential ID: $credentialId | Balance: \$${balance.toStringAsFixed(2)}');
 
           return {
             'success': true,
             'connected': true,
-            'account': account,
-            'message': data['message'] ?? 'Connection established',
+            'credential_id': credentialId,
+            'broker': data['broker'],
+            'account_number': data['account_number'],
             'balance': balance,
-            'leverage': 100,
-            'accountType': isDemo ? 'Demo' : 'Live',
+            'is_live': data['is_live'] ?? false,
+            'status': data['status'] ?? 'CONNECTED',
+            'message': data['message'] ?? 'Connection established',
+            'timestamp': data['timestamp'],
           };
         } else {
           print('❌ Backend connection failed: ${data['error']}');

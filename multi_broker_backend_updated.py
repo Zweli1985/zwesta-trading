@@ -18,13 +18,22 @@ from flask_cors import CORS
 import logging
 from typing import Dict, List, Optional
 from enum import Enum
+import sys
 
-# Configure logging
+# Configure UTF-8 encoding for Windows console logging
+if sys.platform == 'win32':
+    # Enable UTF-8 support in Windows console
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# Configure logging with UTF-8 encoding
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('multi_broker_backend.log'),
+        logging.FileHandler('multi_broker_backend.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )

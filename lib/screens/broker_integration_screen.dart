@@ -151,21 +151,44 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        final account = result['account'] as BrokerAccount;
-        final latency = result['latency'] as int;
+        // Backend returns: credential_id, broker, account_number, balance, status, timestamp
+        final credentialId = result['credential_id'] as String?;
+        final balance = (result['balance'] ?? 10000.0).toDouble();
+        final isDemo = !(_passwordController.text.contains('live') || result['is_live'] == true);
+        
+        // Create BrokerAccount from backend response
+        final account = BrokerAccount(
+          id: credentialId ?? '${_selectedBroker}_${_accountController.text}',
+          brokerName: _selectedBroker,
+          accountNumber: _accountController.text,
+          server: _serverController.text,
+          isDemo: isDemo,
+          accountBalance: balance,
+          leverage: 100,
+          spreadAverage: 1.5,
+          createdAt: DateTime.now(),
+          lastConnected: DateTime.now(),
+          isActive: true,
+          connectionStatus: 'CONNECTED',
+        );
 
         setState(() {
           _isTestingConnection = false;
           _isConnected = true;
           _activeAccount = account;
           _lastConnectionTime = DateTime.now();
-          _accountBalance = result['balance'] ?? 100000.0;
+          _accountBalance = balance;
         });
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('broker_connected', true);
         await prefs.setString('connection_time', _lastConnectionTime!.toIso8601String());
         await prefs.setDouble('account_balance', _accountBalance);
+        if (credentialId != null) {
+          await prefs.setString('credential_id', credentialId);
+          await prefs.setString('broker_name', _selectedBroker);
+          await prefs.setString('account_number', _accountController.text);
+        }
 
         if (mounted) {
           final tradingService = Provider.of<TradingService>(context, listen: false);
@@ -178,7 +201,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✓ Connected! Latency: ${latency}ms'),
+            content: Text('✓ Connected! Balance: \$${balance.toStringAsFixed(2)}'),
             backgroundColor: AppColors.successColor,
             duration: const Duration(seconds: 3),
           ),
@@ -195,6 +218,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
       }
     } catch (e) {
       setState(() => _isTestingConnection = false);
+      print('DEBUG: Test connection error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✗ Error: $e'),
