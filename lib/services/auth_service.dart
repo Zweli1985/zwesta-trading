@@ -106,10 +106,20 @@ class AuthService extends ChangeNotifier {
           await _prefs.setString('current_user', jsonEncode(_currentUser!.toJson()));
 
           // DEBUG: Verify what was saved
-          print('✅ LOGIN SUCCESSFUL - Token saved to SharedPreferences:');
-          print('  auth_token: ${_prefs.getString('auth_token')?.substring(0, 10)}...');
-          print('  user_id: ${_prefs.getString('user_id')}');
+          print('✅ LOGIN SUCCESSFUL - Token received and saving:');
+          print('  _token value: ${_token?.substring(0, 20)}...');
+          print('  data[session_token]: ${data['session_token']?.substring(0, 20)}...');
+          print('  Saving to SharedPreferences...');
+          
+          // Verify saved
+          final savedToken = _prefs.getString('auth_token');
+          final savedUserId = _prefs.getString('user_id');
+          print('✅ VERIFIED in SharedPreferences:');
+          print('  auth_token: ${savedToken?.substring(0, 20)}...');
+          print('  user_id: $savedUserId');
+          print('  All keys: ${_prefs.getKeys()}');
           print('  Session valid for 30 days');
+
 
           _isLoading = false;
           notifyListeners();

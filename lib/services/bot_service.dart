@@ -159,45 +159,54 @@ class BotService extends ChangeNotifier {
       final sessionToken = prefs.getString('auth_token');
       final userId = prefs.getString('user_id');
 
-      print('🔐 DEBUG: CreateBot - Token check:');
-      print('  sessionToken: ${sessionToken?.substring(0, 10) ?? 'NULL'}...');
-      print('  userId: $userId');
-      print('  isDemoMode: ${sessionToken?.isEmpty ?? true}');
+      print('🔐 DEBUG: CreateBot - Checking session...');
+      print('  All keys in SharedPreferences: ${prefs.getKeys()}');
+      print('  auth_token value: $sessionToken');
+      print('  auth_token is null: ${sessionToken == null}');
+      print('  auth_token isEmpty: ${sessionToken?.isEmpty ?? 'null object'}');
+      print('  user_id: $userId');
 
       if (sessionToken == null || sessionToken.isEmpty) {
-        _errorMessage = 'Session expired. Please login again.';
+        _errorMessage = 'Session expired. Please login again. Token was null or empty.';
         _isLoading = false;
         notifyListeners();
         return false;
       }
 
-      print('📤 Sending bot creation request with token...');
+      print('✅ Token found, creating request headers...');
+      final headers = {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      };
+      print('📤 Headers being sent:');
+      print('  Content-Type: ${headers['Content-Type']}');
+      print('  X-Session-Token: ${headers['X-Session-Token']?.substring(0, 20)}...');
+
+      final requestBody = {
+        'botId': botId,
+        'user_id': userId,
+        'accountId': accountId,
+        'symbols': symbols,
+        'strategy': strategy,
+        'riskPerTrade': riskPerTrade,
+        'maxDailyLoss': maxDailyLoss,
+        'enabled': enabled,
+        'autoSwitch': true,
+        'dynamicSizing': true,
+        'basePositionSize': 1.0,
+      };
+
+      print('📤 Sending bot creation request to $_apiUrl/api/bot/create');
+      print('  Body: $requestBody');
 
       final response = await http.post(
         Uri.parse('$_apiUrl/api/bot/create'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-Token': sessionToken,
-        },
-        body: jsonEncode({
-          'botId': botId,
-          'user_id': userId,
-          'accountId': accountId,
-          'symbols': symbols,
-          'strategy': strategy,
-          'riskPerTrade': riskPerTrade,
-          'maxDailyLoss': maxDailyLoss,
-          'enabled': enabled,
-          'autoSwitch': true,
-          'dynamicSizing': true,
-          'basePositionSize': 1.0,
-        }),
+        headers: headers,
+        body: jsonEncode(requestBody),
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          print('Bot created successfully: $botId');
+      print('📥 Response: ${response.statusCode}');
+      print('  Body: ${response.body}')
           await fetchActiveBots();
           return true;
         }
