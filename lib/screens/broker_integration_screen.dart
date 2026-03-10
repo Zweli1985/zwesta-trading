@@ -476,10 +476,31 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
                       ),
                       const SizedBox(width: 12),
                       if (_isConnected)
-                        Chip(
-                          label: Text(_isLiveMode ? 'LIVE' : 'DEMO'),
-                          backgroundColor: _isLiveMode ? Colors.red : Colors.orange,
-                          labelStyle: const TextStyle(color: Colors.white),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _isLiveMode ? Colors.red : Colors.orange,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _isLiveMode ? Icons.warning : Icons.school,
+                                color: Colors.white,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _isLiveMode ? 'LIVE' : 'DEMO',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                     ],
                   ),
@@ -653,6 +674,117 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
                       Text('Password: demo123',
                           style: TextStyle(fontFamily: 'monospace', fontSize: 11)),
                     ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Navigation footer icons
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: Colors.white10)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Tooltip(
+                  message: 'Back to Previous Screen',
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back, size: 24),
+                    onPressed: widget.onBackPressed ?? () => Navigator.pop(context),
+                    tooltip: 'Go Back',
+                  ),
+                ),
+                Tooltip(
+                  message: 'Refresh Connection Status',
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh, size: 24),
+                    onPressed: _isTestingConnection ? null : _testConnection,
+                    tooltip: 'Refresh',
+                  ),
+                ),
+                Tooltip(
+                  message: 'Connection Settings',
+                  child: IconButton(
+                    icon: const Icon(Icons.settings, size: 24),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Settings: Auto-reconnect and account preferences')),
+                      );
+                    },
+                    tooltip: 'Settings',
+                  ),
+                ),
+                Tooltip(
+                  message: 'View Connection History',
+                  child: IconButton(
+                    icon: const Icon(Icons.history, size: 24),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Connection History'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Last Connection: ${_lastConnectionTime?.toString() ?? "N/A"}'),
+                                const SizedBox(height: 8),
+                                Text('Status: ${_isConnected ? "Connected" : "Disconnected"}'),
+                                const SizedBox(height: 8),
+                                Text('Mode: ${_isLiveMode ? "LIVE 🔴" : "DEMO 🟠"}'),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    tooltip: 'History',
+                  ),
+                ),
+                Tooltip(
+                  message: 'Help & Documentation',
+                  child: IconButton(
+                    icon: const Icon(Icons.help_outline, size: 24),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Broker Integration Help'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('📱 Demo Mode (Orange): Training account for testing'),
+                                const SizedBox(height: 8),
+                                const Text('🔴 Live Mode (Red): Real money trading - USE WITH CAUTION'),
+                                const SizedBox(height: 12),
+                                const Text('✓ When Connected:'),
+                                const Text('  • Account is authenticated'),
+                                const Text('  • Bots can place real trades'),
+                                const Text('  • Balance is synchronized'),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    tooltip: 'Help',
                   ),
                 ),
               ],
