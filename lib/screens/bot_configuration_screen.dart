@@ -429,6 +429,104 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Broker Information Section
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.green),
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.green.withOpacity(0.05),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.account_balance, color: Colors.green, size: 24),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Connected Broker',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _brokerService.activeCredential != null
+                                        ? '${_brokerService.activeCredential!.broker} - Account #${_brokerService.activeCredential!.accountNumber}'
+                                        : 'No broker connected',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (context) => const BrokerIntegrationScreen()),
+                                ).then((_) {
+                                  setState(() {
+                                    _brokerService.fetchCredentials();
+                                  });
+                                });
+                              },
+                              icon: const Icon(Icons.edit, size: 18),
+                              label: const Text('Change'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.withOpacity(0.3),
+                                foregroundColor: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // Show list of saved credentials if multiple exist
+                        if (_brokerService.credentials.length > 1)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Your Saved Credentials',
+                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _brokerService.credentials.map((cred) {
+                                  final isActive = cred.credentialId == _brokerService.activeCredential?.credentialId;
+                                  return FilterChip(
+                                    label: Text('${cred.broker} #${cred.accountNumber}'),
+                                    selected: isActive,
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        setState(() {
+                                          _brokerService.setActiveCredential(cred);
+                                        });
+                                      }
+                                    },
+                                    backgroundColor: Colors.grey.withOpacity(0.2),
+                                    selectedColor: Colors.green.withOpacity(0.3),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
                   // Bot ID and Strategy (Side by Side)
                   Row(
                     children: [
