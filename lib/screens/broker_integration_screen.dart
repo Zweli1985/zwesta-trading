@@ -30,6 +30,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
   bool _isTestingConnection = false;
   bool _isConnected = false;
   bool _autoReconnectEnabled = false;
+  bool _isLiveMode = false;  // DEMO by default
   DateTime? _lastConnectionTime;
   double _accountBalance = 0;
   List<BrokerAccount> _savedAccounts = [];
@@ -88,6 +89,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
       _isConnected = prefs.getBool('broker_connected') ?? false;
       _accountBalance = prefs.getDouble('account_balance') ?? 0;
       _autoReconnectEnabled = prefs.getBool('auto_reconnect_enabled') ?? false;
+      _isLiveMode = prefs.getBool('is_live_mode') ?? false;  // Load saved mode
       final connectionTimeStr = prefs.getString('connection_time');
       if (connectionTimeStr != null) {
         _lastConnectionTime = DateTime.parse(connectionTimeStr);
@@ -146,6 +148,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
         accountNumber: _accountController.text,
         password: _passwordController.text,
         server: _serverController.text,
+        isLive: _isLiveMode,
       );
 
       if (!mounted) return;
@@ -184,6 +187,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
         await prefs.setBool('broker_connected', true);
         await prefs.setString('connection_time', _lastConnectionTime!.toIso8601String());
         await prefs.setDouble('account_balance', _accountBalance);
+        await prefs.setBool('is_live_mode', _isLiveMode);
         if (credentialId != null) {
           await prefs.setString('credential_id', credentialId);
           await prefs.setString('broker_name', _selectedBroker);
@@ -403,6 +407,47 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
               hintText: 'demo123',
             ),
           ),
+          const SizedBox(height: 24),
+          Text(
+            'Account Mode',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('DEMO'),
+                      subtitle: const Text('Paper trading'),
+                      value: false,
+                      groupValue: _isLiveMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _isLiveMode = value);
+                        }
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('LIVE'),
+                      subtitle: const Text('Real trading'),
+                      value: true,
+                      groupValue: _isLiveMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _isLiveMode = value);
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 32),
           Card(
             color: Colors.grey[900],
@@ -429,6 +474,13 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      if (_isConnected)
+                        Chip(
+                          label: Text(_isLiveMode ? 'LIVE' : 'DEMO'),
+                          backgroundColor: _isLiveMode ? Colors.red : Colors.orange,
+                          labelStyle: const TextStyle(color: Colors.white),
+                        ),
                     ],
                   ),
                   if (_isConnected) ...[

@@ -66,9 +66,10 @@ class BrokerConnectionService {
     required String accountNumber,
     required String password,
     required String server,
+    bool isLive = false,  // DEMO by default
   }) async {
     try {
-      print('🔌 Testing connection with backend: $broker | Account: $accountNumber');
+      print('🔌 Testing ${isLive ? 'LIVE' : 'DEMO'} connection with backend: $broker | Account: $accountNumber');
       
       // Get session token from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
@@ -84,7 +85,7 @@ class BrokerConnectionService {
         };
       }
       
-      // Call backend API with session token
+      // Call backend API with session token and is_live flag
       final response = await http.post(
         Uri.parse('${EnvironmentConfig.apiUrl}/api/broker/test-connection'),
         headers: {
@@ -96,6 +97,7 @@ class BrokerConnectionService {
           'account_number': accountNumber,
           'password': password,
           'server': server,
+          'is_live': isLive,  // Include DEMO/LIVE selection
         }),
       ).timeout(const Duration(seconds: 15));
 
