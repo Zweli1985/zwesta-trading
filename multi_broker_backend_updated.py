@@ -12,6 +12,10 @@ import sqlite3
 import uuid
 import hashlib
 import threading
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -363,6 +367,37 @@ def init_database():
             ip_address TEXT,
             user_agent TEXT,
             is_active BOOLEAN DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    # Bot activation PINs table - for 2FA before bot activation
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bot_activation_pins (
+            pin_id TEXT PRIMARY KEY,
+            bot_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            pin TEXT NOT NULL,
+            attempts INTEGER DEFAULT 0,
+            created_at TEXT,
+            expires_at TEXT,
+            FOREIGN KEY (bot_id) REFERENCES user_bots(bot_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    # Bot deletion confirmation tokens table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bot_deletion_tokens (
+            token_id TEXT PRIMARY KEY,
+            bot_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            deletion_token TEXT NOT NULL,
+            bot_stats TEXT,
+            created_at TEXT,
+            expires_at TEXT,
+            confirmed BOOLEAN DEFAULT 0,
+            FOREIGN KEY (bot_id) REFERENCES user_bots(bot_id),
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
@@ -2618,6 +2653,171 @@ def distribute_trade_commissions(bot_id: str, user_id: str, profit_amount: float
         # Don't raise - don't break trading if commission fails
 
 
+# ==================== EMAIL NOTIFICATIONS ====================
+def send_activation_pin_email(user_email: str, user_name: str, bot_id: str, pin: str):
+    """Send activation PIN to user email"""
+    try:
+        # For development/demo, just log it
+        logger.info(f"\n{'='*60}")
+        logger.info(f"🔐 BOT ACTIVATION PIN SENT")
+        logger.info(f"{'-'*60}")
+        logger.info(f"User: {user_name} ({user_email})")
+        logger.info(f"Bot ID: {bot_id}")
+        logger.info(f"PIN: {pin}")
+        logger.info(f"Valid for: 10 minutes")
+        logger.info(f"{'='*60}\n")
+        return True
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        return False
+
+
+# ==================== BOT ACTIVATION ENDPOINTS ====================
+@app.route('/api/bot/<bot_id>/request-activation', methods=['POST'])
+@require_session
+def request_bot_activation(bot_id):
+    """Request bot activation - sends PIN to user email for verification"""
+    try:
+        data = request.json or {}
+        user_id = request.user_id  # From @require_session
+        
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        if bot_id not in active_bots:
+            return jsonify({'success': False, 'error': f'Bot {bot_id} not found'}), 404
+        
+        bot = active_bots[bot_id]
+        
+        # Verify bot belongs to user
+        if bot.get('user_id') != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
+        
+        # Generate 6-digit PIN
+        activation_pin = str(random.randint(100000, 999999))
+        pin_id = str(uuid.uuid4())
+        expires_at = datetime.now() + timedelta(minutes=10)
+        
+        # Store PIN in database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get user email
+        cursor.execute('SELECT email, name FROM users WHERE user_id = ?', (user_id,))
+        user_row = cursor.fetchone()
+        
+        if not user_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        user_email = user_row['email']
+        user_name = user_row['name']
+        
+        # Delete any existing unexpired PINs for this bot
+        cursor.execute('''
+            DELETE FROM bot_activation_pins 
+            WHERE bot_id = ? AND user_id = ? AND expires_at > ?
+        ''', (bot_id, user_id, datetime.now().isoformat()))
+        
+        # Insert new PIN
+        cursor.execute('''
+            INSERT INTO bot_activation_pins (pin_id, bot_id, user_id, pin, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (pin_id, bot_id, user_id, activation_pin, datetime.now().isoformat(), expires_at.isoformat()))
+        
+        conn.commit()
+        conn.close()
+        
+        # Send PIN to user (for demo, just logs it)
+        send_activation_pin_email(user_email, user_name, bot_id, activation_pin)
+        
+        logger.info(f"Activation PIN requested for bot {bot_id} by user {user_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Activation PIN sent to {user_email}',
+            'expires_in_seconds': 600,
+            'bot_id': bot_id,
+            'note': 'For testing: PIN will be printed in backend logs'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error requesting activation: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/bot/<bot_id>/request-deletion', methods=['POST'])
+@require_session
+def request_bot_deletion(bot_id):
+    """Request bot deletion - creates confirmation token and captures bot stats"""
+    try:
+        data = request.json or {}
+        user_id = request.user_id
+        
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        if bot_id not in active_bots:
+            return jsonify({'success': False, 'error': f'Bot {bot_id} not found'}), 404
+        
+        bot_config = active_bots[bot_id]
+        
+        # Verify bot belongs to user
+        if bot_config.get('user_id') != user_id:
+            return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
+        
+        # Generate deletion token
+        deletion_token = str(uuid.uuid4().hex[:16])
+        token_id = str(uuid.uuid4())
+        expires_at = datetime.now() + timedelta(minutes=5)  # 5 minute confirmation window
+        
+        # Capture final bot stats
+        bot_stats = {
+            'totalTrades': bot_config.get('totalTrades', 0),
+            'winningTrades': bot_config.get('winningTrades', 0),
+            'totalProfit': bot_config.get('totalProfit', 0),
+            'totalLosses': bot_config.get('totalLosses', 0),
+        }
+        
+        # Store deletion token
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Delete any existing unexpired tokens
+        cursor.execute('''
+            DELETE FROM bot_deletion_tokens
+            WHERE bot_id = ? AND user_id = ? AND expires_at > ? AND confirmed = 0
+        ''', (bot_id, user_id, datetime.now().isoformat()))
+        
+        cursor.execute('''
+            INSERT INTO bot_deletion_tokens 
+            (token_id, bot_id, user_id, deletion_token, bot_stats, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (token_id, bot_id, user_id, deletion_token, json.dumps(bot_stats), 
+              datetime.now().isoformat(), expires_at.isoformat()))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.warning(f"🗑️ BOT DELETION REQUESTED: {bot_id} by {user_id}")
+        logger.warning(f"   Stats: {bot_stats}")
+        logger.warning(f"   Confirmation Token: {deletion_token}")
+        logger.warning(f"   Valid for 5 minutes")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Deletion confirmation token generated',
+            'confirmation_token': deletion_token,
+            'expires_in_seconds': 300,
+            'warning': 'This action cannot be undone. All bot data will be permanently deleted.',
+            'bot_stats': bot_stats
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error requesting deletion: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/bot/create', methods=['POST'])
 @require_session
 def create_bot():
@@ -2765,6 +2965,16 @@ def create_bot():
 def start_bot():
     """Start automatic trading for a bot with intelligent strategy switching
     
+    SECURITY: Requires PIN verification (2FA) before activation
+    
+    REQUEST FLOW:
+    1. User clicks "Start Bot"
+    2. Frontend calls POST /api/bot/<bot_id>/request-activation
+    3. Backend sends PIN to user email
+    4. User enters PIN in app
+    5. Frontend calls POST /api/bot/start with activation_pin
+    6. Backend verifies PIN and activates bot
+    
     Supports HYBRID MODE:
     - DEMO: Trades using shared demo MT5 account
     - LIVE: Trades using user's real MT5 account (if credentials stored)
@@ -2773,6 +2983,7 @@ def start_bot():
         data = request.json
         bot_id = data.get('botId')
         user_id = data.get('user_id') or request.user_id  # Get from request or session
+        activation_pin = data.get('activation_pin')  # NEW: Required for 2FA
         
         if not user_id:
             return jsonify({'success': False, 'error': 'user_id required'}), 400
@@ -2785,9 +2996,45 @@ def start_bot():
         if bot.get('user_id') != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
+        # ✅ NEW: Verify activation PIN
+        if not activation_pin:
+            return jsonify({
+                'success': False, 
+                'error': 'activation_pin required for security',
+                'next_step': 'Request PIN by calling POST /api/bot/<bot_id>/request-activation'
+            }), 401
+        
         # Also verify in database
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # Verify PIN exists, belongs to user, and hasn't expired
+        cursor.execute('''
+            SELECT * FROM bot_activation_pins 
+            WHERE bot_id = ? AND user_id = ? AND pin = ? AND expires_at > ?
+        ''', (bot_id, user_id, activation_pin, datetime.now().isoformat()))
+        
+        pin_record = cursor.fetchone()
+        
+        if not pin_record:
+            # Increment failed attempts
+            cursor.execute('''
+                UPDATE bot_activation_pins 
+                SET attempts = attempts + 1
+                WHERE bot_id = ? AND user_id = ?
+            ''', (bot_id, user_id))
+            conn.commit()
+            conn.close()
+            
+            return jsonify({
+                'success': False, 
+                'error': 'Invalid or expired PIN. Request a new one.',
+                'next_step': 'Call POST /api/bot/<bot_id>/request-activation to get a new PIN'
+            }), 401
+        
+        # Delete used PIN to prevent reuse
+        cursor.execute('DELETE FROM bot_activation_pins WHERE bot_id = ? AND user_id = ?', (bot_id, user_id))
+        
         cursor.execute('SELECT user_id FROM user_bots WHERE bot_id = ?', (bot_id,))
         db_bot = cursor.fetchone()
         
@@ -3050,10 +3297,10 @@ def bot_status():
 @app.route('/api/bot/stop/<bot_id>', methods=['POST'])
 @require_session
 def stop_bot(bot_id):
-    """Stop a trading bot"""
+    """Stop a trading bot (still keeps it in system for restart)"""
     try:
         data = request.json or {}
-        user_id = data.get('user_id') or request.user_id  # Get from request or session
+        user_id = data.get('user_id') or request.user_id
         
         if not user_id:
             return jsonify({'success': False, 'error': 'user_id required'}), 400
@@ -3076,9 +3323,12 @@ def stop_bot(bot_id):
         if not db_bot or db_bot['user_id'] != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
+        # Only disable, don't delete
         bot_config['enabled'] = False
         
-        logger.info(f"Stopped bot {bot_id}")
+        logger.info(f"\u23f9\ufe0f Bot {bot_id} stopped (still in system, can be restarted)")
+        logger.info(f"   Total Trades: {bot_config.get('totalTrades', 0)}")
+        logger.info(f"   Total Profit: ${bot_config.get('totalProfit', 0):.2f}")
         
         return jsonify({
             'success': True,
@@ -3086,7 +3336,8 @@ def stop_bot(bot_id):
             'finalStats': {
                 'totalTrades': bot_config['totalTrades'],
                 'winningTrades': bot_config['winningTrades'],
-                'totalProfit': bot_config['totalProfit'],
+                'totalProfit': round(bot_config['totalProfit'], 2),
+                'note': 'Bot can be restarted later. Use /delete to permanently remove.'
             }
         }), 200
     
@@ -3098,10 +3349,11 @@ def stop_bot(bot_id):
 @app.route('/api/bot/delete/<bot_id>', methods=['DELETE', 'POST'])
 @require_session
 def delete_bot(bot_id):
-    """Delete a trading bot permanently"""
+    """Delete a trading bot permanently (requires confirmation token)"""
     try:
         data = request.json or {}
-        user_id = data.get('user_id') or request.user_id  # Get from request or session
+        user_id = data.get('user_id') or request.user_id
+        confirmation_token = data.get('confirmation_token')
         
         if not user_id:
             return jsonify({'success': False, 'error': 'user_id required'}), 400
@@ -3114,9 +3366,34 @@ def delete_bot(bot_id):
         if bot_config.get('user_id') != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
-        # Also verify in database
+        # Verify confirmation token
+        if not confirmation_token:
+            return jsonify({
+                'success': False,
+                'error': 'confirmation_token required for permanent deletion',
+                'next_step': f'Call POST /api/bot/{bot_id}/request-deletion to get confirmation token'
+            }), 401
+        
+        # Look up and verify token
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM bot_deletion_tokens
+            WHERE bot_id = ? AND user_id = ? AND deletion_token = ? AND expires_at > ?
+        ''', (bot_id, user_id, confirmation_token, datetime.now().isoformat()))
+        
+        token_record = cursor.fetchone()
+        
+        if not token_record:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Invalid or expired confirmation token',
+                'next_step': f'Call POST /api/bot/{bot_id}/request-deletion to get a new token'
+            }), 401
+        
+        # Verify bot ownership in database
         cursor.execute('SELECT user_id FROM user_bots WHERE bot_id = ?', (bot_id,))
         db_bot = cursor.fetchone()
         
@@ -3124,24 +3401,36 @@ def delete_bot(bot_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
+        # Log deletion with all stats
+        final_stats = bot_config.copy()
+        logger.critical(f"\ud83d\uddd1\ufe0f BOT PERMANENTLY DELETED: {bot_id} by user {user_id}")
+        logger.critical(f"   Final Stats: {json.dumps({'totalTrades': final_stats.get('totalTrades'), 'totalProfit': final_stats.get('totalProfit')}, indent=2)}")
+        logger.critical(f"   Deletion confirmed with token: {confirmation_token[:8]}...")
+        
         # Delete from database
         cursor.execute('DELETE FROM user_bots WHERE bot_id = ?', (bot_id,))
+        cursor.execute('DELETE FROM bot_credentials WHERE bot_id = ?', (bot_id,))
+        cursor.execute('DELETE FROM bot_deletion_tokens WHERE bot_id = ?', (bot_id,))
+        cursor.execute('DELETE FROM bot_activation_pins WHERE bot_id = ?', (bot_id,))
         conn.commit()
-        conn.close()
         
-        bot_config = active_bots[bot_id]
-        # Stop bot first if running
+        # Stop bot if running
         if bot_config.get('enabled', False):
             bot_config['enabled'] = False
         
-        # Remove bot from active_bots dictionary
+        # Remove from active_bots
         del active_bots[bot_id]
         
-        logger.info(f"Deleted bot {bot_id}")
+        conn.close()
         
         return jsonify({
             'success': True,
-            'message': f'Bot {bot_id} deleted successfully',
+            'message': f'Bot {bot_id} permanently deleted',
+            'deleted_stats': {
+                'totalTrades': final_stats.get('totalTrades', 0),
+                'winningTrades': final_stats.get('winningTrades', 0),
+                'totalProfit': final_stats.get('totalProfit', 0),
+            },
             'remainingBots': len(active_bots)
         }), 200
     
