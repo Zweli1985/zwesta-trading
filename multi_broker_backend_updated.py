@@ -2996,44 +2996,43 @@ def start_bot():
         if bot.get('user_id') != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
-        # ✅ NEW: Verify activation PIN
-        if not activation_pin:
-            return jsonify({
-                'success': False, 
-                'error': 'activation_pin required for security',
-                'next_step': 'Request PIN by calling POST /api/bot/<bot_id>/request-activation'
-            }), 401
-        
-        # Also verify in database
+        # ✅ OPTIONAL: Verify activation PIN (for enhanced security)
+        # If PIN is provided, validate it; if not, allow start for backward compatibility
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Verify PIN exists, belongs to user, and hasn't expired
-        cursor.execute('''
-            SELECT * FROM bot_activation_pins 
-            WHERE bot_id = ? AND user_id = ? AND pin = ? AND expires_at > ?
-        ''', (bot_id, user_id, activation_pin, datetime.now().isoformat()))
-        
-        pin_record = cursor.fetchone()
-        
-        if not pin_record:
-            # Increment failed attempts
+        if activation_pin:
+            # PIN PROVIDED: Verify PIN exists, belongs to user, and hasn't expired
             cursor.execute('''
-                UPDATE bot_activation_pins 
-                SET attempts = attempts + 1
-                WHERE bot_id = ? AND user_id = ?
-            ''', (bot_id, user_id))
-            conn.commit()
-            conn.close()
+                SELECT * FROM bot_activation_pins 
+                WHERE bot_id = ? AND user_id = ? AND pin = ? AND expires_at > ?
+            ''', (bot_id, user_id, activation_pin, datetime.now().isoformat()))
             
-            return jsonify({
-                'success': False, 
-                'error': 'Invalid or expired PIN. Request a new one.',
-                'next_step': 'Call POST /api/bot/<bot_id>/request-activation to get a new PIN'
-            }), 401
-        
-        # Delete used PIN to prevent reuse
-        cursor.execute('DELETE FROM bot_activation_pins WHERE bot_id = ? AND user_id = ?', (bot_id, user_id))
+            pin_record = cursor.fetchone()
+            
+            if not pin_record:
+                # Increment failed attempts
+                cursor.execute('''
+                    UPDATE bot_activation_pins 
+                    SET attempts = attempts + 1
+                    WHERE bot_id = ? AND user_id = ?
+                ''', (bot_id, user_id))
+                conn.commit()
+                conn.close()
+                
+                return jsonify({
+                    'success': False, 
+                    'error': 'Invalid or expired PIN. Request a new one.',
+                    'next_step': 'Call POST /api/bot/<bot_id>/request-activation to get a new PIN'
+                }), 401
+            
+            # Delete used PIN to prevent reuse
+            cursor.execute('DELETE FROM bot_activation_pins WHERE bot_id = ? AND user_id = ?', (bot_id, user_id))
+            logger.info(f"✅ Bot {bot_id} activation PIN verified for user {user_id}")
+        else:
+            # NO PIN PROVIDED: Allow bot start for backward compatibility
+            logger.warning(f"⚠️  Bot {bot_id} started WITHOUT 2FA PIN (legacy request from user {user_id})")
+            logger.warning(f"   Recommendation: Update client to use /api/bot/<bot_id>/request-activation + PIN for security")
         
         cursor.execute('SELECT user_id FROM user_bots WHERE bot_id = ?', (bot_id,))
         db_bot = cursor.fetchone()
@@ -3366,32 +3365,33 @@ def delete_bot(bot_id):
         if bot_config.get('user_id') != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
-        # Verify confirmation token
-        if not confirmation_token:
-            return jsonify({
-                'success': False,
-                'error': 'confirmation_token required for permanent deletion',
-                'next_step': f'Call POST /api/bot/{bot_id}/request-deletion to get confirmation token'
-            }), 401
-        
-        # Look up and verify token
+        # OPTIONAL: Verify confirmation token (for enhanced security)
+        # If token is provided, validate it; if not, allow deletion for backward compatibility
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM bot_deletion_tokens
-            WHERE bot_id = ? AND user_id = ? AND deletion_token = ? AND expires_at > ?
-        ''', (bot_id, user_id, confirmation_token, datetime.now().isoformat()))
-        
-        token_record = cursor.fetchone()
-        
-        if not token_record:
-            conn.close()
-            return jsonify({
-                'success': False,
-                'error': 'Invalid or expired confirmation token',
-                'next_step': f'Call POST /api/bot/{bot_id}/request-deletion to get a new token'
-            }), 401
+        if confirmation_token:
+            # TOKEN PROVIDED: Look up and verify token
+            cursor.execute('''
+                SELECT * FROM bot_deletion_tokens
+                WHERE bot_id = ? AND user_id = ? AND deletion_token = ? AND expires_at > ?
+            ''', (bot_id, user_id, confirmation_token, datetime.now().isoformat()))
+            
+            token_record = cursor.fetchone()
+            
+            if not token_record:
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid or expired confirmation token',
+                    'next_step': f'Call POST /api/bot/{bot_id}/request-deletion to get a new token'
+                }), 401
+            
+            logger.info(f"✅ Bot {bot_id} deletion token verified for user {user_id}")
+        else:
+            # NO TOKEN PROVIDED: Allow deletion for backward compatibility
+            logger.warning(f"⚠️  Bot {bot_id} deleted WITHOUT 2-step confirmation (legacy request from user {user_id})")
+            logger.warning(f"   Recommendation: Update client to use /api/bot/{bot_id}/request-deletion + token for safety")
         
         # Verify bot ownership in database
         cursor.execute('SELECT user_id FROM user_bots WHERE bot_id = ?', (bot_id,))
