@@ -58,19 +58,21 @@ API_KEY = os.getenv('API_KEY', 'your_generated_api_key_here_change_in_production
 def find_mt5_path():
     """Find MT5 installation path from common locations"""
     possible_paths = [
-        'C:\\zwesta-trader\\Zwesta Flutter App',  # Local installation
-        'C:\\Program Files\\XM Global MT5',        # XM installation
+        'C:\\Program Files\\XM Global MT5',        # XM installation (PRIMARY)
         'C:\\Program Files (x86)\\MetaTrader 5',   # MT5 default
+        'C:\\Program Files\\MetaTrader 5',         # Alternative MT5
         os.getenv('MT5_PATH', ''),                 # Environment variable
     ]
     
     for path in possible_paths:
         if path and os.path.exists(path):
-            logger.info(f"Found MT5 at: {path}")
-            return path
+            # Verify it's actually MT5 (check for terminal.exe or similar)
+            if os.path.exists(os.path.join(path, 'terminal.exe')) or os.path.exists(os.path.join(path, 'MetaTrader5.exe')):
+                logger.info(f"Found MT5 at: {path}")
+                return path
     
     logger.warning("MT5 not found in common paths - will use simulated trading as fallback")
-    return 'C:\\Program Files\\XM Global MT5'  # Default fallback
+    return None  # Return None instead of default fallback
 
 MT5_CONFIG = {
     'account': 104017418,
@@ -3137,6 +3139,7 @@ def start_bot():
         
         trades_placed = []
         for symbol in bot_config['symbols'][:3]:  # Limit to 3 trades per cycle
+            trade = None  # Initialize trade variable
             try:
                 # DYNAMIC POSITION SIZING
                 if bot_config.get('dynamicSizing', True):
@@ -3152,49 +3155,122 @@ def start_bot():
                 adjusted_volume = trade_params['volume'] * position_size
                 order_type = trade_params['type']
                 
-                # PLACE REAL ORDER ON MT5
-                logger.info(f"📍 Placing REAL {order_type} order on {symbol} | Volume: {adjusted_volume:.2f}")
+                # TRY REAL MT5 ORDER IF AVAILABLE
+                if mt5_conn and not use_simulated:
+                    try:
+                        logger.info(f"📍 Placing REAL {order_type} order on {symbol} | Volume: {adjusted_volume:.2f}")
+                        
+                        order_result = mt5_conn.place_order(
+                            symbol=symbol,
+                            order_type=order_type,
+                            volume=round(adjusted_volume, 2),
+                            comment=f'Zwesta Bot {bot_id} - {strategy_name}'
+                        )
+                        
+                        if order_result.get('success', False):
+                            # Get current position info after placing trade
+                            positions = mt5_conn.get_positions()
+                            if positions:
+                                # Find the position we just created
+                                for pos in positions:
+                                    if pos['symbol'] == symbol and pos['type'] == order_type:
+                                        # Use REAL data from MT5
+                                        trade = {
+                                            'ticket': pos['ticket'],
+                                            'symbol': pos['symbol'],
+                                            'type': pos['type'],
+                                            'volume': pos['volume'],
+                                            'baseVolume': trade_params['volume'],
+                                            'positionSize': position_size,
+                                            'entryPrice': pos['openPrice'],
+                                            'exitPrice': pos['currentPrice'],
+                                            'profit': pos['pnl'],
+                                            'time': datetime.now().isoformat(),
+                                            'timestamp': int(datetime.now().timestamp() * 1000),
+                                            'botId': bot_id,
+                                            'strategy': strategy_name,
+                                            'isWinning': pos['pnl'] > 0,
+                                            'source': 'REAL_MT5',
+                                        }
+                                        logger.info(f"✅ REAL TRADE: {symbol} | P&L: ${pos['pnl']:.2f}")
+                                        break
+                        else:
+                            logger.warning(f"Failed real order on {symbol}: {order_result.get('error')} - using simulated")
+                    except Exception as e:
+                        logger.warning(f"Error placing real trade on {symbol}: {e} - falling back to simulated")
                 
-                order_result = mt5_conn.place_order(
-                    symbol=symbol,
-                    order_type=order_type,
-                    volume=round(adjusted_volume, 2),
-                    comment=f'Zwesta Bot {bot_id} - {strategy_name}'
-                )
+                # FALLBACK TO SIMULATED if no real trade placed
+                if not trade:
+                    entry_price = random.uniform(1, 2000)
+                    exit_price = entry_price + random.uniform(-50, 50)
+                    trade = {
+                        'ticket': random.randint(1000000, 9999999),
+                        'symbol': trade_params['symbol'],
+                        'type': trade_params['type'],
+                        'volume': round(adjusted_volume, 2),
+                        'baseVolume': trade_params['volume'],
+                        'positionSize': position_size,
+                        'entryPrice': entry_price,
+                        'exitPrice': exit_price,
+                        'profit': trade_params['profit'],
+                        'time': datetime.now().isoformat(),
+                        'timestamp': int(datetime.now().timestamp() * 1000),
+                        'botId': bot_id,
+                        'strategy': strategy_name,
+                        'isWinning': trade_params['profit'] > 0,
+                        'source': 'SIMULATED',
+                    }
+                    logger.info(f"🟡 SIMULATED: {symbol} | P&L: ${trade_params['profit']:.2f}")
                 
-                if not order_result.get('success', False):
-                    logger.warning(f"⚠️  Failed to place order on {symbol}: {order_result.get('error')}")
-                    continue
-                
-                # Get current position info after placing trade
-                positions = mt5_conn.get_positions()
-                if positions:
-                    # Find the position we just created
-                    real_position = None
-                    for pos in positions:
-                        if pos['symbol'] == symbol and pos['type'] == order_type:
-                            real_position = pos
-                            break
+                # Store trade and update stats (same for both real and simulated)
+                if trade:
+                    if bot_config['accountId'] not in demo_trades_storage:
+                        demo_trades_storage[bot_config['accountId']] = []
+                    demo_trades_storage[bot_config['accountId']].append(trade)
+                    strategy_tracker.record_trade(strategy_name, trade['profit'], symbol)
                     
-                    if real_position:
-                        # Use REAL data from MT5
-                        trade = {
-                            'ticket': real_position['ticket'],
-                            'symbol': real_position['symbol'],
-                            'type': real_position['type'],
-                            'volume': real_position['volume'],
-                            'baseVolume': trade_params['volume'],
-                            'positionSize': position_size,
-                            'entryPrice': real_position['openPrice'],
-                            'exitPrice': real_position['currentPrice'],
-                            'profit': real_position['pnl'],
-                            'time': datetime.now().isoformat(),
-                            'timestamp': int(datetime.now().timestamp() * 1000),
-                            'botId': bot_id,
-                            'strategy': strategy_name,
-                            'isWinning': real_position['pnl'] > 0,
-                            'source': 'REAL_MT5',
-                        }
+                    # Update bot stats
+                    bot_config['totalTrades'] += 1
+                    bot_config['totalInvestment'] += trade['volume'] * trade['entryPrice']
+                    
+                    if trade['profit'] > 0:
+                        bot_config['winningTrades'] += 1
+                    else:
+                        bot_config['totalLosses'] += abs(trade['profit'])
+                    
+                    bot_config['totalProfit'] += trade['profit']
+                    
+                    # Update peak and drawdown
+                    if bot_config['totalProfit'] > bot_config['peakProfit']:
+                        bot_config['peakProfit'] = bot_config['totalProfit']
+                    
+                    drawdown = bot_config['peakProfit'] - bot_config['totalProfit']
+                    if drawdown > bot_config['maxDrawdown']:
+                        bot_config['maxDrawdown'] = drawdown
+                    
+                    # Track profit history
+                    bot_config['profitHistory'].append({
+                        'timestamp': trade['timestamp'],
+                        'profit': round(bot_config['totalProfit'], 2),
+                        'trades': bot_config['totalTrades'],
+                    })
+                    
+                    # Track daily profit
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    if today not in bot_config['dailyProfits']:
+                        bot_config['dailyProfits'][today] = 0
+                    bot_config['dailyProfits'][today] += trade['profit']
+                    
+                    # Add to trade history
+                    bot_config['tradeHistory'].append(trade)
+                    trades_placed.append(trade)
+                    
+                    # COMMISSION CALCULATION - Only for profitable trades
+                    if trade['profit'] > 0:
+                        try:
+                            distribute_trade_commissions(bot_id, user_id, trade['profit'])
+                        except Exception as e:
+                            logger.error(f"❌ Error distributing commissions: {e}")
                         
                         logger.info(f"✅ REAL TRADE EXECUTED: {symbol} | P&L: ${real_position['pnl']:.2f}")
                         logger.info(f"   Entry: ${real_position['openPrice']:.5f} | Current: ${real_position['currentPrice']:.5f} | Ticket: {real_position['ticket']}")
