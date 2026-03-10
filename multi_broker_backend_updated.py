@@ -2707,8 +2707,6 @@ def create_bot():
             'mode': mode,
             'message': f'Bot {bot_id} created successfully'
         }), 201
-            }
-        }), 200
     
     except Exception as e:
         logger.error(f"Error creating bot: {e}")
