@@ -3272,8 +3272,11 @@ def start_bot():
                         except Exception as e:
                             logger.error(f"❌ Error distributing commissions: {e}")
                         
-                        logger.info(f"✅ REAL TRADE EXECUTED: {symbol} | P&L: ${real_position['pnl']:.2f}")
-                        logger.info(f"   Entry: ${real_position['openPrice']:.5f} | Current: ${real_position['currentPrice']:.5f} | Ticket: {real_position['ticket']}")
+                        if trade.get('source') == 'REAL':
+                            logger.info(f"✅ REAL TRADE EXECUTED: {symbol} | P&L: ${trade['profit']:.2f}")
+                            logger.info(f"   Entry: ${trade['entryPrice']:.5f} | Current: ${trade['exitPrice']:.5f} | Ticket: {trade['ticket']}")
+                        else:
+                            logger.info(f"🟡 SIMULATED: {symbol} | P&L: ${trade['profit']:.2f}")
                         
                         # Store trade
                         if bot_config['accountId'] not in demo_trades_storage:
@@ -3327,23 +3330,17 @@ def start_bot():
                 logger.error(f"Error placing trade on {symbol}: {e}")
                 continue
         
-        # Get updated account info from MT5
+        # Get updated account info from MT5 (only if connection exists)
         try:
-            account_info = mt5_conn.get_account_info()
-            if account_info:
-                bot_config['accountBalance'] = account_info.get('balance', 0)
-                logger.info(f"📊 Account Balance (from MT5): ${account_info.get('balance', 0):.2f}")
+            if mt5_conn and not use_simulated:
+                account_info = mt5_conn.get_account_info()
+                if account_info:
+                    bot_config['accountBalance'] = account_info.get('balance', 0)
+                    logger.info(f"📊 Account Balance (from MT5): ${account_info.get('balance', 0):.2f}")
+            else:
+                logger.info(f"📊 Using SIMULATED account balance: ${bot_config.get('accountBalance', 0):.2f}")
         except Exception as e:
             logger.warning(f"Could not update account info: {e}")
-            
-            # ✅ COMMISSION CALCULATION - Only for profitable trades
-            if trade['profit'] > 0:
-                try:
-                    distribute_trade_commissions(bot_id, user_id, trade['profit'])
-                except Exception as e:
-                    logger.error(f"❌ Error distributing commissions for {bot_id}: {e}")
-            
-            trades_placed.append(trade)
         
         logger.info(f"Bot {bot_id} ({strategy_name}) placed {len(trades_placed)} trades with dynamic sizing")
         
