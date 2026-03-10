@@ -2029,6 +2029,104 @@ commodity_market_data = {
 # Store active bots configuration
 active_bots = {}
 
+# ==================== BROKER REGISTRY (Dynamic Broker Configuration) ====================
+# This registry can be updated without code changes
+REGISTERED_BROKERS = [
+    {
+        'id': 'xm',
+        'name': 'XM',
+        'display_name': 'XM Global',
+        'logo': '🏦',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'Global regulated forex and commodities broker',
+    },
+    {
+        'id': 'pepperstone',
+        'name': 'Pepperstone',
+        'display_name': 'Pepperstone Global',
+        'logo': '🐘',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'Low-cost forex and CFD trading',
+    },
+    {
+        'id': 'fxopen',
+        'name': 'FxOpen',
+        'display_name': 'FxOpen',
+        'logo': '📊',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'Forex, metals, and energies broker',
+    },
+    {
+        'id': 'exness',
+        'name': 'Exness',
+        'display_name': 'Exness',
+        'logo': '⚡',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'High leverage forex trading',
+    },
+    {
+        'id': 'darwinex',
+        'name': 'Darwinex',
+        'display_name': 'Darwinex',
+        'logo': '🦎',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'Social forex trading platform',
+    },
+    {
+        'id': 'ic-markets',
+        'name': 'IC Markets',
+        'display_name': 'IC Markets',
+        'logo': '📈',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'Australian regulated MT5 broker',
+    },
+]
+
+@app.route('/api/brokers', methods=['GET'])
+def get_broker_registry():
+    """Get dynamic broker registry (no auth required - public endpoint)"""
+    try:
+        # Return only active brokers
+        active_brokers = [b for b in REGISTERED_BROKERS if b['is_active']]
+        
+        logger.info(f"✅ Returned {len(active_brokers)} active brokers")
+        return jsonify({
+            'success': True,
+            'brokers': active_brokers,
+            'count': len(active_brokers)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching broker registry: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/brokers/<broker_id>', methods=['GET'])
+def get_broker_details(broker_id):
+    """Get details for a specific broker"""
+    try:
+        broker = next((b for b in REGISTERED_BROKERS if b['id'] == broker_id), None)
+        
+        if not broker:
+            return jsonify({
+                'success': False,
+                'error': f'Broker {broker_id} not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'broker': broker
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching broker details: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== BROKER CREDENTIAL MANAGEMENT ====================
 
 @app.route('/api/broker/credentials', methods=['GET'])
