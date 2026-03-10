@@ -515,7 +515,7 @@ def create_bot():
     """Create and start a new trading bot"""
     try:
         data = request.json
-        bot_id = data.get('botId') or f"bot_{datetime.now().timestamp()}"
+        bot_id = data.get('botId') or f"bot_{uuid.uuid4().hex[:12]}"
         symbols = data.get('symbols', ['EURUSD'])
         strategy = data.get('strategy', 'trend_following')
         risk_per_trade = float(data.get('riskPerTrade', 100))

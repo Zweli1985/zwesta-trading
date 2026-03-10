@@ -2681,8 +2681,8 @@ def create_bot():
             print(f"✅ Using broker credential: {broker_name} | Account: {account_number} | Mode: {mode}")
             
             # Bot configuration
-            # Generate unique bot_id using milliseconds (not just seconds) to allow multiple bots in same second
-            bot_id = data.get('botId') or f"bot_{int(datetime.now().timestamp() * 1000)}"
+            # Generate unique bot_id using UUID (completely collision-free, even with simultaneous requests)
+            bot_id = data.get('botId') or f"bot_{uuid.uuid4().hex[:12]}"
             symbols = data.get('symbols', ['EURUSD'])
             strategy = data.get('strategy', 'Trend Following')
             risk_per_trade = float(data.get('riskPerTrade', 100))
