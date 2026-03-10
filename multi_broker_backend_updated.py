@@ -104,7 +104,10 @@ def require_session(f):
     def decorated_function(*args, **kwargs):
         # Get session token from header
         session_token = request.headers.get('X-Session-Token')
+        logger.debug(f"[SESSION CHECK] Endpoint: {request.endpoint}, Token received: {session_token[:20]}..." if session_token else "[SESSION CHECK] No token in header")
+        
         if not session_token:
+            logger.error(f"[SESSION FAIL] Missing X-Session-Token header for {request.endpoint}")
             return jsonify({'success': False, 'error': 'Missing session token in X-Session-Token header'}), 401
         
         try:
@@ -122,15 +125,18 @@ def require_session(f):
             conn.close()
             
             if not session:
+                logger.error(f"[SESSION FAIL] Token not found in DB or inactive: {session_token[:20]}...")
                 return jsonify({'success': False, 'error': 'Invalid or inactive session token'}), 401
             
             # Check expiration
             expires_at = datetime.fromisoformat(session['expires_at'])
             if expires_at < datetime.now():
+                logger.error(f"[SESSION FAIL] Token expired for user {session['user_id']}")
                 return jsonify({'success': False, 'error': 'Session token expired'}), 401
             
             # Attach user_id to request for use in the route handler
             request.user_id = session['user_id']
+            logger.info(f"[SESSION OK] User {session['user_id']} authenticated for {request.endpoint}")
             return f(*args, **kwargs)
         
         except Exception as e:
