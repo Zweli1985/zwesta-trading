@@ -3458,38 +3458,6 @@ def add_broker_credentials(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/user/<user_id>/broker-credentials', methods=['GET'])
-@require_session
-def get_broker_credentials(user_id):
-    """Get all broker credentials for a user"""
-    # Verify user is accessing only their own credentials
-    if request.user_id != user_id:
-        return jsonify({'success': False, 'error': 'Unauthorized: Cannot access other user credentials'}), 403
-    """Get all broker credentials for a user"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT credential_id, broker_name, account_number, server, is_live, is_active, created_at
-            FROM broker_credentials WHERE user_id = ? ORDER BY created_at DESC
-        ''', (user_id,))
-        
-        credentials = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'user_id': user_id,
-            'credentials': credentials,
-            'total': len(credentials)
-        }), 200
-    
-    except Exception as e:
-        logger.error(f"Error getting broker credentials: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
 @app.route('/api/user/<user_id>/bots', methods=['GET'])
 @require_session
 def get_user_bots(user_id):
