@@ -2372,6 +2372,111 @@ def request_commission_withdrawal():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ==================== COMMISSION DISTRIBUTION HELPER ====================
+
+def distribute_trade_commissions(bot_id: str, user_id: str, profit_amount: float):
+    """
+    Distribute commissions for profitable trades
+    
+    Flow:
+    1. Calculate 5% commission from profit
+    2. Check if user has referrer
+    3. If YES: Split 50/50 between user and referrer
+    4. If NO: User gets full commission
+    5. Create commission records in database
+    """
+    try:
+        if profit_amount <= 0:
+            return  # Only commission on profits
+        
+        COMMISSION_RATE = 0.05  # 5%
+        commission_amount = profit_amount * COMMISSION_RATE
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if this user has a referrer
+        cursor.execute('''
+            SELECT referrer_id FROM referrals
+            WHERE referred_user_id = ? AND status = 'active'
+        ''', (user_id,))
+        
+        referrer_row = cursor.fetchone()
+        has_referrer = referrer_row is not None
+        referrer_id = referrer_row[0] if has_referrer else None
+        
+        # Create commission record for bot owner
+        commission_id_1 = str(uuid.uuid4())
+        
+        if has_referrer:
+            # Split commission 50/50
+            user_commission = commission_amount * 0.5
+            referrer_commission = commission_amount * 0.5
+            
+            # Commission for user
+            cursor.execute('''
+                INSERT INTO commissions
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                commission_id_1,
+                user_id,              # User earns commission
+                user_id,              # From their bot's profit
+                bot_id,
+                profit_amount,
+                COMMISSION_RATE,
+                user_commission,
+                datetime.now().isoformat()
+            ))
+            
+            # Commission for referrer
+            commission_id_2 = str(uuid.uuid4())
+            cursor.execute('''
+                INSERT INTO commissions
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                commission_id_2,
+                referrer_id,           # Referrer earns commission
+                user_id,               # From referred user's bot
+                bot_id,
+                profit_amount,
+                COMMISSION_RATE,
+                referrer_commission,
+                datetime.now().isoformat()
+            ))
+            
+            logger.info(f"💰 Commission distributed for bot {bot_id}:")
+            logger.info(f"   User {user_id}: ${user_commission:.2f} (50%)")
+            logger.info(f"   Referrer {referrer_id}: ${referrer_commission:.2f} (50%)")
+            
+        else:
+            # No referrer - user gets full commission
+            cursor.execute('''
+                INSERT INTO commissions
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                commission_id_1,
+                user_id,
+                user_id,
+                bot_id,
+                profit_amount,
+                COMMISSION_RATE,
+                commission_amount,
+                datetime.now().isoformat()
+            ))
+            
+            logger.info(f"💰 Commission created for bot {bot_id}: ${commission_amount:.2f} (no referrer)")
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"❌ Error in distribute_trade_commissions: {e}")
+        # Don't raise - don't break trading if commission fails
+
+
 @app.route('/api/bot/create', methods=['POST'])
 @require_session
 def create_bot():
@@ -2683,6 +2788,13 @@ def start_bot():
             
             # Add to trade history
             bot_config['tradeHistory'].append(trade)
+            
+            # ✅ COMMISSION CALCULATION - Only for profitable trades
+            if trade['profit'] > 0:
+                try:
+                    distribute_trade_commissions(bot_id, user_id, trade['profit'])
+                except Exception as e:
+                    logger.error(f"❌ Error distributing commissions for {bot_id}: {e}")
             
             trades_placed.append(trade)
         
