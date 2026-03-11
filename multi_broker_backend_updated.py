@@ -696,43 +696,76 @@ class MT5Connection(BrokerConnection):
             self.mt5 = None
 
     def connect(self) -> bool:
-        """Connect to MT5"""
+        """
+        Connect to MT5 with retry logic and better error handling
+        """
         try:
             if not self.mt5:
                 logger.error("MetaTrader5 SDK not available")
                 return False
 
-            if not self.mt5.initialize(path=self.mt5_path):
-                logger.error(f"MT5 init failed: {self.mt5.last_error()}")
-                return False
-
             account = self.credentials.get('account') or MT5_CONFIG['account']
             password = self.credentials.get('password') or MT5_CONFIG['password']
             server = self.credentials.get('server') or MT5_CONFIG['server']
-
-            # Try login with provided password
-            logger.info(f"Attempting MT5 login: Account={account}, Server={server}")
-            login_result = self.mt5.login(account, password=password, server=server)
             
-            if login_result:
-                self.connected = True
-                self.get_account_info()
-                logger.info(f"✅ Connected to MT5 account {account}")
-                return True
+            # Retry logic: attempt connection up to 3 times with increasing delays
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                logger.info(f"MT5 connection attempt {attempt}/{max_retries}: Account={account}, Server={server}")
+                
+                try:
+                    # Shutdown any existing connection first
+                    if self.mt5.initialize(path=self.mt5_path):
+                        # Successfully initialized, now try to login
+                        logger.info(f"  ✓ MT5 SDK initialized (path: {self.mt5_path})")
+                        
+                        # Try login with password first
+                        login_result = self.mt5.login(account, password=password, server=server)
+                        if login_result:
+                            self.connected = True
+                            self.get_account_info()
+                            logger.info(f"✅ Connected to MT5 account {account} with password")
+                            return True
+                        
+                        # If password fails, try guest login
+                        logger.warning(f"  ✗ Password login failed: {self.mt5.last_error()}")
+                        logger.info(f"  ↻ Attempting guest login (no password)...")
+                        
+                        login_result = self.mt5.login(account, server=server)
+                        if login_result:
+                            self.connected = True
+                            self.get_account_info()
+                            logger.info(f"✅ Connected to MT5 account {account} (guest mode)")
+                            return True
+                        
+                        # Both login methods failed
+                        login_error = self.mt5.last_error()
+                        logger.warning(f"  ✗ Guest login also failed: {login_error}")
+                        
+                        # Shutdown for retry
+                        try:
+                            self.mt5.shutdown()
+                        except:
+                            pass
+                    
+                    else:
+                        init_error = self.mt5.last_error()
+                        logger.warning(f"  ✗ MT5 initialization failed: {init_error}")
+                        logger.debug(f"    (Terminal process may still be starting...)")
+                
+                except Exception as e:
+                    logger.warning(f"  ✗ Error during attempt {attempt}: {e}")
+                
+                # Wait before retry, increasing delay each time
+                if attempt < max_retries:
+                    wait_time = 3 * attempt  # 3 sec, then 6 sec, then 9 sec
+                    logger.info(f"  ⏳ Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
             
-            # If password login fails, try without password (for demo accounts)
-            login_error = self.mt5.last_error()
-            logger.warning(f"MT5 password login failed: {login_error} - trying guest login")
-            
-            login_result = self.mt5.login(account, server=server)
-            if login_result:
-                self.connected = True
-                self.get_account_info()
-                logger.info(f"✅ Connected to MT5 account {account} (guest mode)")
-                return True
-            
-            logger.error(f"MT5 guest login also failed: {self.mt5.last_error()}")
+            # All retries exhausted
+            logger.error(f"❌ Failed to connect to MT5 after {max_retries} attempts")
             return False
+            
         except Exception as e:
             logger.error(f"MT5 connection error: {e}")
             return False
@@ -4796,24 +4829,48 @@ if __name__ == '__main__':
             logger.info(f"   Account: {account}")
             logger.info(f"   Server: {server}")
             
-            # Method 1: Launch MT5 normally (without command-line args - they don't work reliably)
-            # MT5 will attempt to use previously saved credentials or accept guest connections
+            # Kill any existing MT5 processes first
+            try:
+                import subprocess
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "terminal.exe"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "terminal64.exe"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                logger.info("  ↻ Cleaned up any existing MT5 processes")
+                time.sleep(2)  # Wait for cleanup
+            except:
+                pass
+            
+            # Launch fresh MT5 instance
             subprocess.Popen(
                 [mt5_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
+            logger.info("  ✓ Process launched")
             
-            logger.info("⏳ MT5 terminal launching... (waiting 10 seconds for full initialization)")
-            time.sleep(10)  # Give MT5 more time to fully start
-            logger.info("✅ MT5 terminal should be initialized now")
+            # Wait for terminal to fully initialize (increased from 10 to 15 seconds)
+            logger.info("⏳ Waiting 15 seconds for MT5 terminal to fully initialize...")
+            for countdown in range(15, 0, -1):
+                if countdown % 3 == 0:
+                    logger.info(f"   {countdown}s remaining...")
+                time.sleep(1)
+            
+            logger.info("✅ MT5 terminal initialization complete - ready for SDK connections")
         except Exception as e:
             logger.warning(f"⚠️  Could not launch MT5: {e}")
     else:
         logger.warning("⚠️  MT5 path not found - will use simulated trading only")
     
     # AUTO-CONNECT to MT5 (so dashboard shows real account balance)
+    # This will retry up to 3 times with increasing waits
     auto_connect_mt5()
     
     # Initialize demo bots on startup
