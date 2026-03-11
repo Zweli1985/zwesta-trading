@@ -342,6 +342,7 @@ def init_database():
             daily_profit REAL DEFAULT 0,
             total_profit REAL DEFAULT 0,
             broker_account_id TEXT,
+            symbols TEXT DEFAULT 'EURUSD',
             created_at TEXT,
             updated_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
@@ -3069,9 +3070,9 @@ def create_bot():
                     bot_id = f"bot_{int(time.time() * 1000) + 1}_{uuid.uuid4().hex[:8]}"
                 
                 cursor.execute('''
-                    INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, broker_account_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, account_id, created_at, created_at))
+                    INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, broker_account_id, symbols, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, account_id, ','.join(symbols), created_at, created_at))
                 
                 # Link bot to credential for commission tracking
                 cursor.execute('''
@@ -3086,9 +3087,9 @@ def create_bot():
                     # Final retry with absolute unique ID
                     bot_id = f"bot_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:6]}"
                     cursor.execute('''
-                        INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, broker_account_id, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, account_id, created_at, created_at))
+                        INSERT INTO user_bots (bot_id, user_id, name, strategy, status, enabled, broker_account_id, symbols, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (bot_id, user_id, data.get('name', strategy), strategy, 'active', trading_enabled, account_id, ','.join(symbols), created_at, created_at))
                     cursor.execute('''
                         INSERT INTO bot_credentials (bot_id, credential_id, user_id, created_at)
                         VALUES (?, ?, ?, ?)
