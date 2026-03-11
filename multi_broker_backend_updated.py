@@ -2421,38 +2421,6 @@ def live_market_data_updater():
         except Exception as e:
             logger.error(f"❌ Error in live market data updater: {e}")
             time.sleep(5)  # Wait 5 seconds before retrying on error
-                if 'STRONG BUY' in signal:
-                    recommendation = 'Strong uptrend - excellent entry opportunity'
-                elif 'BUY' in signal:
-                    recommendation = 'Positive momentum - good opportunity'
-                elif 'STRONG SELL' in signal:
-                    recommendation = 'Strong downtrend - avoid or consider short'
-                elif 'SELL' in signal:
-                    recommendation = 'Negative momentum - risky'
-                else:
-                    recommendation = f'{volatility} volatility - monitor before entering'
-                
-                live_prices[symbol] = {
-                    'price': round(current_price, 5),
-                    'change': round(price_change, 2),
-                    'trend': trend,
-                    'volatility': volatility,
-                    'signal': signal,
-                    'recommendation': recommendation,
-                }
-                
-                # Update previous price for next calculation
-                previous_prices[symbol] = current_price
-                
-            except Exception as e:
-                logger.debug(f"Error fetching live price for {symbol}: {e}")
-                continue
-        
-        return live_prices if live_prices else None
-        
-    except Exception as e:
-        logger.error(f"Error fetching live prices from MT5: {e}")
-        return None
 
 
 # Commodity Market Sentiment Data
