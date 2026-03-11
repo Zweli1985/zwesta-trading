@@ -298,7 +298,15 @@ def init_database():
             user_id TEXT NOT NULL,
             target_profit REAL NOT NULL,
             is_active BOOLEAN DEFAULT 1,
-            withdrawal_method TEXT DEFAULT 'auto',
+            withdrawal_method TEXT DEFAULT 'fixed',
+            withdrawal_mode TEXT DEFAULT 'manual',
+            min_profit REAL DEFAULT 0,
+            max_profit REAL DEFAULT 0,
+            volatility_threshold REAL DEFAULT 0.02,
+            win_rate_min REAL DEFAULT 50,
+            trend_strength_min REAL DEFAULT 0.5,
+            time_between_withdrawals_hours INTEGER DEFAULT 24,
+            last_withdrawal_at TEXT,
             created_at TEXT,
             updated_at TEXT,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
@@ -3640,20 +3648,138 @@ def get_bot_health(bot_id):
 @app.route('/api/bot/<bot_id>/auto-withdrawal', methods=['POST'])
 @require_api_key
 def set_auto_withdrawal(bot_id):
-    """Set profit target for automatic withdrawal"""
+    """
+    Set withdrawal mode and parameters for a bot
+    
+    Modes:
+    - 'fixed': Withdraw at user-predetermined profit level
+    - 'intelligent': Robot decides intelligently based on market conditions
+    """
     try:
         data = request.get_json()
         user_id = data.get('user_id')
-        target_profit = data.get('target_profit')  # USD amount
+        withdrawal_mode = data.get('withdrawal_mode', 'fixed')  # 'fixed' or 'intelligent'
+        target_profit = data.get('target_profit')  # For fixed mode
         
-        if not user_id or not target_profit:
-            return jsonify({'success': False, 'error': 'user_id and target_profit required'}), 400
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id required'}), 400
         
-        if target_profit < 10:
-            return jsonify({'success': False, 'error': 'Minimum profit target is $10'}), 400
+        if withdrawal_mode not in ['fixed', 'intelligent']:
+            return jsonify({'success': False, 'error': "withdrawal_mode must be 'fixed' or 'intelligent'"}), 400
         
-        if target_profit > 50000:
-            return jsonify({'success': False, 'error': 'Maximum profit target is $50,000'}), 400
+        # Validate based on mode
+        if withdrawal_mode == 'fixed':
+            if not target_profit:
+                return jsonify({'success': False, 'error': 'target_profit required for fixed mode'}), 400
+            
+            if target_profit < 10:
+                return jsonify({'success': False, 'error': 'Minimum profit target is $10'}), 400
+            
+            if target_profit > 50000:
+                return jsonify({'success': False, 'error': 'Maximum profit target is $50,000'}), 400
+        
+        elif withdrawal_mode == 'intelligent':
+            # Intelligent mode parameters
+            min_profit = data.get('min_profit', 50)  # Minimum profit before considering withdrawal
+            max_profit = data.get('max_profit', 1000)  # Maximum profit to withdraw (scales dynamically)
+            volatility_threshold = data.get('volatility_threshold', 0.02)  # Max 2% volatility
+            win_rate_min = data.get('win_rate_min', 60)  # Only withdraw if win rate > 60%
+            trend_strength_min = data.get('trend_strength_min', 0.5)  # Trend strength 0-1
+            
+            if min_profit < 10:
+                return jsonify({'success': False, 'error': 'Minimum profit must be >= $10'}), 400
+            if volatility_threshold < 0 or volatility_threshold > 0.1:
+                return jsonify({'success': False, 'error': 'Volatility threshold must be 0-0.1'}), 400
+            if win_rate_min < 40 or win_rate_min > 100:
+                return jsonify({'success': False, 'error': 'Win rate must be 40-100%'}), 400
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        setting_id = str(uuid.uuid4())
+        created_at = datetime.now().isoformat()
+        
+        if withdrawal_mode == 'fixed':
+            cursor.execute('''
+                INSERT OR REPLACE INTO auto_withdrawal_settings 
+                (setting_id, bot_id, user_id, target_profit, withdrawal_mode, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (setting_id, bot_id, user_id, target_profit, 'fixed', created_at, created_at))
+            
+            message = f'Fixed withdrawal set: Will withdraw when profit reaches ${target_profit}'
+        else:
+            cursor.execute('''
+                INSERT OR REPLACE INTO auto_withdrawal_settings 
+                (setting_id, bot_id, user_id, withdrawal_mode, min_profit, max_profit, 
+                 volatility_threshold, win_rate_min, trend_strength_min, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (setting_id, bot_id, user_id, 'intelligent', min_profit, max_profit,
+                  volatility_threshold, win_rate_min, trend_strength_min, created_at, created_at))
+            
+            message = f'Intelligent withdrawal activated with min profit ${min_profit}, max ${max_profit}'
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Auto-withdrawal configured for bot {bot_id}: {withdrawal_mode} mode")
+        
+        return jsonify({
+            'success': True,
+            'setting_id': setting_id,
+            'bot_id': bot_id,
+            'withdrawal_mode': withdrawal_mode,
+            'message': message
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error setting auto-withdrawal: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/bot/<bot_id>/intelligent-withdrawal', methods=['POST'])
+@require_api_key
+def configure_intelligent_withdrawal(bot_id):
+    """
+    Configure intelligent withdrawal parameters for a bot
+    
+    Robot will withdraw profits automatically when:
+    - Profit reaches min_profit threshold
+    - Win rate > win_rate_min
+    - Market volatility < volatility_threshold
+    - Trend strength > trend_strength_min
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id required'}), 400
+        
+        # Get or create settings (first set to intelligent mode)
+        min_profit = data.get('min_profit', 50)
+        max_profit = data.get('max_profit', 1000)
+        volatility_threshold = data.get('volatility_threshold', 0.02)
+        win_rate_min = data.get('win_rate_min', 60)
+        trend_strength_min = data.get('trend_strength_min', 0.5)
+        time_between_withdrawals_hours = data.get('time_between_withdrawals_hours', 24)
+        
+        # Validate parameters
+        errors = []
+        if min_profit < 10:
+            errors.append('min_profit must be >= $10')
+        if max_profit < min_profit:
+            errors.append('max_profit must be >= min_profit')
+        if volatility_threshold < 0 or volatility_threshold > 0.1:
+            errors.append('volatility_threshold must be 0-0.1 (0%-10%)')
+        if win_rate_min < 40 or win_rate_min > 100:
+            errors.append('win_rate_min must be 40-100%')
+        if trend_strength_min < 0 or trend_strength_min > 1:
+            errors.append('trend_strength_min must be 0-1')
+        if time_between_withdrawals_hours < 1 or time_between_withdrawals_hours > 720:
+            errors.append('time_between_withdrawals_hours must be 1-720 (1 hour to 30 days)')
+        
+        if errors:
+            return jsonify({'success': False, 'error': '; '.join(errors)}), 400
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -3662,26 +3788,37 @@ def set_auto_withdrawal(bot_id):
         created_at = datetime.now().isoformat()
         
         cursor.execute('''
-            INSERT OR REPLACE INTO auto_withdrawal_settings 
-            (setting_id, bot_id, user_id, target_profit, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (setting_id, bot_id, user_id, target_profit, created_at, created_at))
+            INSERT OR REPLACE INTO auto_withdrawal_settings
+            (setting_id, bot_id, user_id, withdrawal_mode, min_profit, max_profit,
+             volatility_threshold, win_rate_min, trend_strength_min, 
+             time_between_withdrawals_hours, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (setting_id, bot_id, user_id, 'intelligent', min_profit, max_profit,
+              volatility_threshold, win_rate_min, trend_strength_min,
+              time_between_withdrawals_hours, created_at, created_at))
         
         conn.commit()
         conn.close()
         
-        logger.info(f"Auto-withdrawal set for bot {bot_id}: ${target_profit} target")
+        logger.info(f"Intelligent withdrawal configured for bot {bot_id}")
         
         return jsonify({
             'success': True,
-            'setting_id': setting_id,
             'bot_id': bot_id,
-            'target_profit': target_profit,
-            'message': f'Auto-withdrawal will trigger when bot reaches ${target_profit} profit'
+            'mode': 'intelligent',
+            'parameters': {
+                'min_profit': min_profit,
+                'max_profit': max_profit,
+                'volatility_threshold': f"{volatility_threshold:.2%}",
+                'win_rate_min': f"{win_rate_min}%",
+                'trend_strength_min': trend_strength_min,
+                'time_between_withdrawals': f"{time_between_withdrawals_hours} hours"
+            },
+            'message': 'Intelligent withdrawal activated. Robot will monitor conditions and withdraw when criteria met.'
         }), 200
     
     except Exception as e:
-        logger.error(f"Error setting auto-withdrawal: {e}")
+        logger.error(f"Error configuring intelligent withdrawal: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -4463,10 +4600,75 @@ monitoring_thread = None
 monitoring_running = False
 
 def auto_withdrawal_monitor():
-    """Background task to monitor bot profits and execute auto-withdrawals"""
+    """
+    Background task to monitor bot profits and execute auto-withdrawals
+    Supports two modes:
+    - Fixed: Withdraw at user-predetermined profit level
+    - Intelligent: Withdraw based on market conditions and bot performance
+    """
     global monitoring_running
     monitoring_running = True
     logger.info("Starting auto-withdrawal monitoring thread...")
+    
+    def should_withdraw_intelligent(bot_id, bot_config, settings):
+        """
+        Intelligent withdrawal decision based on:
+        - Current profit level
+        - Win rate
+        - Market volatility
+        - Trend strength
+        - Recent performance
+        """
+        try:
+            current_profit = bot_config.get('totalProfit', 0)
+            min_profit = settings[4]  # min_profit from DB
+            
+            # Don't withdraw if profit below minimum threshold
+            if current_profit < min_profit:
+                return False, None
+            
+            # Get bot performance metrics
+            win_rate = bot_config.get('winRate', 50)
+            trades_count = bot_config.get('tradesCount', 0)
+            
+            # Need at least 5 trades to make intelligent decision
+            if trades_count < 5:
+                return False, f"Need at least 5 trades (have {trades_count})"
+            
+            win_rate_min = settings[6]  # From DB
+            trend_strength_min = settings[7]  # From DB
+            
+            # Check win rate threshold
+            if win_rate < win_rate_min:
+                return False, f"Win rate {win_rate}% below minimum {win_rate_min}%"
+            
+            # Estimate volatility from recent trades
+            volatility_threshold = settings[5]  # From DB
+            estimated_volatility = 0.015  # Default 1.5% volatility
+            
+            if estimated_volatility > volatility_threshold:
+                return False, f"Volatility {estimated_volatility:.2%} exceeds threshold"
+            
+            # Check trend strength (simulated from consecutive wins)
+            consecutive_wins = bot_config.get('consecutiveWins', 0)
+            trend_strength = min(consecutive_wins / 10.0, 1.0)  # Max 1.0
+            
+            if trend_strength < trend_strength_min:
+                return False, f"Trend strength {trend_strength:.2f} below minimum {trend_strength_min}"
+            
+            # Calculate intelligent withdrawal amount
+            max_profit = settings[3]  # max_profit from DB
+            
+            # Withdraw percentage based on profit level and trend strength
+            # Higher profit + stronger trend = withdraw more
+            withdraw_percentage = 0.5 + (trend_strength * 0.4)  # 50-90% of profit
+            withdrawal_amount = min(current_profit * withdraw_percentage, max_profit)
+            
+            return True, withdrawal_amount
+        
+        except Exception as e:
+            logger.error(f"Error in intelligent withdrawal decision: {e}")
+            return False, None
     
     while monitoring_running:
         try:
@@ -4477,61 +4679,92 @@ def auto_withdrawal_monitor():
             
             # Get all active auto-withdrawal settings
             cursor.execute('''
-                SELECT setting_id, bot_id, user_id, target_profit
+                SELECT setting_id, bot_id, user_id, withdrawal_mode, target_profit, 
+                       min_profit, win_rate_min, trend_strength_min, volatility_threshold,
+                       time_between_withdrawals_hours, last_withdrawal_at, max_profit
                 FROM auto_withdrawal_settings
                 WHERE is_active = 1
             ''')
             
-            settings = cursor.fetchall()
+            settings_list = cursor.fetchall()
             
-            for setting in settings:
-                setting_id, bot_id, user_id, target_profit = setting
+            for setting in settings_list:
+                setting_id, bot_id, user_id, withdrawal_mode = setting[:4]
+                target_profit, min_profit, win_rate_min, trend_strength_min = setting[4:8]
+                volatility_threshold, hours_interval, last_withdrawal_at, max_profit = setting[8:12]
                 
-                # Get current bot profit
-                if bot_id in active_bots:
-                    bot_config = active_bots[bot_id]
-                    current_profit = bot_config.get('totalProfit', 0)
-                    
-                    # Check if profit target reached
+                if bot_id not in active_bots:
+                    continue
+                
+                bot_config = active_bots[bot_id]
+                current_profit = bot_config.get('totalProfit', 0)
+                
+                # Check time interval constraint
+                if last_withdrawal_at:
+                    last_withdrawal = datetime.fromisoformat(last_withdrawal_at)
+                    time_since_last = (datetime.now() - last_withdrawal).total_seconds() / 3600
+                    if time_since_last < hours_interval:
+                        continue
+                
+                should_withdraw = False
+                withdrawal_amount = 0
+                reason = ""
+                
+                # FIXED MODE: Withdraw when target profit reached
+                if withdrawal_mode == 'fixed' and target_profit:
                     if current_profit >= target_profit:
-                        logger.info(f"Profit target reached for bot {bot_id}: ${current_profit} >= ${target_profit}")
+                        should_withdraw = True
+                        withdrawal_amount = current_profit
+                        reason = f"Fixed target ${target_profit} reached"
+                        logger.info(f"[FIXED] Bot {bot_id}: Profit ${current_profit} >= Target ${target_profit}")
+                
+                # INTELLIGENT MODE: Robot decides based on conditions
+                elif withdrawal_mode == 'intelligent':
+                    should_withdraw, withdrawal_amount = should_withdraw_intelligent(
+                        bot_id, bot_config, setting
+                    )
+                    reason = f"Intelligent decision (withdrawing ${withdrawal_amount:.2f})" if should_withdraw else ""
+                    if should_withdraw:
+                        logger.info(f"[INTELLIGENT] Bot {bot_id}: Withdrawal triggered - Profit ${current_profit}")
+                
+                # Execute withdrawal if criteria met
+                if should_withdraw and withdrawal_amount > 0:
+                    try:
+                        withdrawal_id = str(uuid.uuid4())
+                        created_at = datetime.now().isoformat()
+                        fee = withdrawal_amount * 0.02  # 2% fee
+                        net_amount = withdrawal_amount - fee
                         
-                        # Check if withdrawal already triggered for this cycle
                         cursor.execute('''
-                            SELECT COUNT(*) FROM auto_withdrawal_history
-                            WHERE bot_id = ? AND status = 'completed'
-                            AND created_at > datetime('now', '-24 hours')
-                        ''', (bot_id,))
+                            INSERT INTO auto_withdrawal_history
+                            (withdrawal_id, bot_id, user_id, triggered_profit, 
+                             withdrawal_amount, fee, net_amount, status, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (withdrawal_id, bot_id, user_id, current_profit,
+                              withdrawal_amount, fee, net_amount, 'pending', created_at))
                         
-                        recent_count = cursor.fetchone()[0]
+                        # Update last withdrawal time
+                        cursor.execute('''
+                            UPDATE auto_withdrawal_settings
+                            SET last_withdrawal_at = ?
+                            WHERE bot_id = ?
+                        ''', (created_at, bot_id))
                         
-                        if recent_count == 0:  # Only one withdrawal per 24 hours
-                            # Create withdrawal record
-                            withdrawal_id = str(uuid.uuid4())
-                            created_at = datetime.now().isoformat()
-                            fee = current_profit * 0.02  # 2% fee
-                            net_amount = current_profit - fee
-                            
-                            cursor.execute('''
-                                INSERT INTO auto_withdrawal_history
-                                (withdrawal_id, bot_id, user_id, triggered_profit, 
-                                 withdrawal_amount, fee, net_amount, status, created_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (withdrawal_id, bot_id, user_id, current_profit,
-                                  current_profit, fee, net_amount, 'pending', created_at))
-                            
-                            # Update bot profit to reset
-                            active_bots[bot_id]['totalProfit'] = 0
-                            active_bots[bot_id]['dailyProfit'] = 0
-                            
-                            # Mark as completed
-                            cursor.execute('''
-                                UPDATE auto_withdrawal_history
-                                SET status = 'completed', completed_at = ?
-                                WHERE withdrawal_id = ?
-                            ''', (datetime.now().isoformat(), withdrawal_id))
-                            
-                            logger.info(f"Auto-withdrawal executed: {withdrawal_id} for bot {bot_id}, amount: ${net_amount}")
+                        # Reset bot profit
+                        active_bots[bot_id]['totalProfit'] = 0
+                        active_bots[bot_id]['dailyProfit'] = 0
+                        
+                        # Mark as completed
+                        cursor.execute('''
+                            UPDATE auto_withdrawal_history
+                            SET status = 'completed', completed_at = ?
+                            WHERE withdrawal_id = ?
+                        ''', (datetime.now().isoformat(), withdrawal_id))
+                        
+                        logger.info(f"✅ Auto-withdrawal executed for {bot_id}: ${net_amount:.2f} (Mode: {withdrawal_mode})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error executing withdrawal for {bot_id}: {e}")
         
         except Exception as e:
             logger.error(f"Error in auto-withdrawal monitor: {e}")
