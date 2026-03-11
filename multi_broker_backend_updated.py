@@ -985,6 +985,25 @@ demo_trades_storage = {}
 logger.info("Initializing with MT5 demo account")
 broker_manager.add_connection('Default MT5', BrokerType.METATRADER5, MT5_CONFIG)
 
+# AUTO-CONNECT to MT5 on startup (so dashboard shows real balance)
+def auto_connect_mt5():
+    """Auto-connect to MT5 on startup"""
+    try:
+        connection = broker_manager.connections.get('Default MT5')
+        if connection:
+            logger.info("🔗 Attempting auto-connect to MT5...")
+            if connection.connect():
+                logger.info("✅ Auto-connected to MT5 successfully - balance will display on dashboard")
+                return True
+            else:
+                logger.warning("⚠️  Failed to auto-connect to MT5 - will use simulated trading, dashboard will show $0 balance")
+                return False
+    except Exception as e:
+        logger.warning(f"⚠️  Error auto-connecting to MT5: {e} - will use simulated trading")
+        return False
+
+# Note: Connection happens after Flask initialization in __main__
+
 
 # ==================== API ENDPOINTS ====================
 
@@ -4512,6 +4531,9 @@ if __name__ == '__main__':
     logger.info("Starting Zwesta Multi-Broker Backend")
     logger.info(f"MT5 Account: {MT5_CONFIG['account']}")
     logger.info(f"MT5 Server: {MT5_CONFIG['server']}")
+    
+    # AUTO-CONNECT to MT5 (so dashboard shows real account balance)
+    auto_connect_mt5()
     
     # Initialize demo bots on startup
     logger.info("Initializing demo trading bots...")
