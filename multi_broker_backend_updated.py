@@ -834,7 +834,15 @@ class MT5Connection(BrokerConnection):
             if not self.connected:
                 return {'success': False, 'error': 'Not connected'}
 
+            # First, select the symbol to ensure it's available in MT5
+            if not self.mt5.symbol_select(symbol, True):
+                return {'success': False, 'error': f'Symbol {symbol} not found in MT5'}
+
+            # Now get the tick data (bid/ask prices)
             tick = self.mt5.symbol_info_tick(symbol)
+            if tick is None:
+                return {'success': False, 'error': f'Cannot get tick data for {symbol}'}
+            
             price = tick.ask if order_type == 'BUY' else tick.bid
 
             request_dict = {
