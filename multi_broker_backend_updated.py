@@ -2259,11 +2259,20 @@ def get_live_prices_from_mt5():
     
     try:
         mt5_connection = broker_manager.connections.get('Default MT5')
-        if not mt5_connection or not mt5_connection.connected:
+        if not mt5_connection:
+            logger.debug("❌ MT5 connection not found in broker_manager")
+            return None
+        
+        if not mt5_connection.connected:
+            logger.debug("❌ MT5 connection exists but not connected")
             return None
         
         live_prices = {}
         mt5 = mt5_connection.mt5
+        
+        if not mt5:
+            logger.debug("❌ MT5 SDK not initialized")
+            return None
         
         # Fetch prices for all valid symbols
         for symbol in VALID_SYMBOLS:
@@ -2400,20 +2409,23 @@ def live_market_data_updater():
             if live_prices:
                 # Update commodity_market_data with live prices (thread-safe)
                 with market_data_lock:
+                    updated_count = 0
                     for symbol, data in live_prices.items():
                         if symbol in commodity_market_data:
                             # Keep all original data but update prices and signals
                             commodity_market_data[symbol].update(data)
+                            updated_count += 1
                     
-                    logger.debug(f"✅ Updated {len(live_prices)} live prices from MT5")
+                    if updated_count > 0:
+                        logger.info(f"✅ Updated {updated_count} live prices from MT5")
                 
                 update_failed_count = 0  # Reset failure counter
             else:
                 update_failed_count += 1
                 if update_failed_count == 1:
-                    logger.warning("⚠️  Could not fetch live prices from MT5 - using cached data. Make sure MT5 is connected.")
-                elif update_failed_count >= max_failed_attempts:
-                    logger.warning(f"⚠️  MT5 live price feed unavailable after {max_failed_attempts} attempts - will continue with cached prices")
+                    logger.warning("⚠️  Could not fetch live prices from MT5 - MT5 connection may not be ready")
+                elif update_failed_count >= 5:
+                    logger.debug(f"⚠️  Still waiting for MT5 live prices... ({update_failed_count} attempts)")
                     # Still continue to serve cached prices
             
             time.sleep(update_interval)
