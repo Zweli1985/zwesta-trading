@@ -1989,7 +1989,7 @@ def initialize_demo_bots():
         {
             'botId': 'DemoBot_Commodities_MeanReversion',
             'accountId': 'Demo MT5 - XM Global',
-            'symbols': ['XAUUSD', 'XAGUSD', 'WTIUSD'],
+            'symbols': ['XPTUSD', 'OILK', 'USDCHF'],
             'strategy': 'Mean Reversion',
             'riskPerTrade': 75,
             'maxDailyLoss': 400,
@@ -2001,7 +2001,7 @@ def initialize_demo_bots():
         {
             'botId': 'DemoBot_Indices_RangeTrading',
             'accountId': 'Demo MT5 - XM Global',
-            'symbols': ['SPX500', 'UK100', 'GER40'],
+            'symbols': ['SP500m', 'DAX', 'USDCAD'],
             'strategy': 'Range Trading',
             'riskPerTrade': 125,
             'maxDailyLoss': 600,
@@ -2163,30 +2163,32 @@ def get_bot_config(bot_id):
 # Commodity Market Sentiment Data
 # Tracks price trends, volatility, and trading signals
 commodity_market_data = {
+    # ===== AVAILABLE SYMBOLS ON METAQUOTES-DEMO (Verified from MT5 Market Watch) =====
+    # Forex Pairs (9)
     'EURUSD': {'price': 1.0890, 'change': 0.35, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 STRONG BUY', 'recommendation': 'Positive trajectory - good for trend following'},
     'GBPUSD': {'price': 1.2750, 'change': -0.22, 'trend': 'DOWN', 'volatility': 'Medium', 'signal': '🔴 SELL', 'recommendation': 'Downtrend - risky, avoid'},
     'USDJPY': {'price': 149.50, 'change': 0.15, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Slight uptrend, moderate opportunity'},
+    'USDCHF': {'price': 0.8950, 'change': 0.12, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Safe haven currency - stable'},
     'AUDUSD': {'price': 0.6580, 'change': 0.88, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Strong uptrend with high volatility - excellent'},
-    'GOLD': {'price': 2045.50, 'change': 1.25, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Bullish trend - safe choice for scalping'},
-    'SILVER': {'price': 24.30, 'change': -0.55, 'trend': 'DOWN', 'volatility': 'High', 'signal': '🟡 CAUTION', 'recommendation': 'Mixed signals - use smaller positions'},
-    'PLATINUM': {'price': 920.00, 'change': 0.42, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Steady uptrend - reliable'},
-    'PALLADIUM': {'price': 980.50, 'change': -1.10, 'trend': 'DOWN', 'volatility': 'High', 'signal': '🔴 SELL', 'recommendation': 'Downtrend with volatility - avoid'},
-    'COPPER': {'price': 3.85, 'change': 0.65, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Positive momentum - good entry point'},
-    'CRUDE_OIL': {'price': 82.45, 'change': 1.85, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Strong bullish action'},
-    'NATURAL_GAS': {'price': 2.85, 'change': -2.40, 'trend': 'DOWN', 'volatility': 'Very High', 'signal': '🔴 SELL', 'recommendation': 'Strong downtrend - high risk'},
-    'COFFEE': {'price': 225.50, 'change': 0.95, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Uptrend confirmed'},
-    'SUGAR': {'price': 25.40, 'change': -0.35, 'trend': 'DOWN', 'volatility': 'Low', 'signal': '🟡 CAUTION', 'recommendation': 'Slight downtrend - wait for confirmation'},
-    'WHEAT': {'price': 520.00, 'change': 0.55, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Positive seasonal trend'},
-    'CORN': {'price': 425.75, 'change': 0.20, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Stable uptrend - safe trade'},
-    'SOYBEAN': {'price': 1285.50, 'change': -0.45, 'trend': 'DOWN', 'volatility': 'Medium', 'signal': '🟡 CAUTION', 'recommendation': 'Mixed signals - monitor closely'},
-    'COTTON': {'price': 76.80, 'change': 0.75, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 BUY', 'recommendation': 'Strong uptrend'},
-    'CATTLE': {'price': 132.50, 'change': 1.10, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Bullish trend confirmed'},
-    'HOGS': {'price': 78.25, 'change': -0.80, 'trend': 'DOWN', 'volatility': 'Medium', 'signal': '🔴 SELL', 'recommendation': 'Downtrend - avoid'},
-    'DAX': {'price': 18250.00, 'change': 0.45, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Steady index growth'},
-    'FTSE': {'price': 7890.50, 'change': -0.25, 'trend': 'DOWN', 'volatility': 'Low', 'signal': '🟡 CAUTION', 'recommendation': 'Slight decline - exercise caution'},
-    'CAC40': {'price': 8050.75, 'change': 0.60, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Strong uptrend'},
-    'NIKKEI': {'price': 28900.00, 'change': 2.35, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Very bullish'},
-    'BITCOIN': {'price': 72500.00, 'change': 5.20, 'trend': 'UP', 'volatility': 'Very High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Strong bullish momentum'},
+    'NZDUSD': {'price': 0.6125, 'change': 0.65, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Commodity currency strength'},
+    'USDCAD': {'price': 1.3550, 'change': -0.10, 'trend': 'DOWN', 'volatility': 'Low', 'signal': '🟡 CAUTION', 'recommendation': 'Oil correlation - monitor'},
+    'USDCNH': {'price': 7.2850, 'change': 0.05, 'trend': 'UP', 'volatility': 'Very Low', 'signal': '🟡 CAUTION', 'recommendation': 'Limited liquidity - wider spreads'},
+    'USDSEK': {'price': 10.8950, 'change': -0.15, 'trend': 'DOWN', 'volatility': 'Low', 'signal': '🔴 SELL', 'recommendation': 'Nordic weakness'},
+    
+    # Commodities (2)
+    'XPTUSD': {'price': 920.00, 'change': 0.42, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'Precious metal - safe hedge'},
+    'OILK': {'price': 82.45, 'change': 1.85, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Energy commodity bullish'},
+    
+    # Indices (2)
+    'DAX': {'price': 18250.00, 'change': 0.45, 'trend': 'UP', 'volatility': 'Low', 'signal': '🟢 BUY', 'recommendation': 'German stocks - steady growth'},
+    'SP500m': {'price': 5285.50, 'change': 0.85, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'US market strength'},
+    
+    # Individual Stocks (5)
+    'AMD': {'price': 185.75, 'change': 2.15, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Tech momentum strong'},
+    'MSFT': {'price': 415.50, 'change': 1.25, 'trend': 'UP', 'volatility': 'Medium', 'signal': '🟢 BUY', 'recommendation': 'Blue chip stability'},
+    'INTC': {'price': 48.25, 'change': -0.35, 'trend': 'DOWN', 'volatility': 'Medium', 'signal': '🟡 CAUTION', 'recommendation': 'Awaiting earnings'},
+    'NVDA': {'price': 875.00, 'change': 3.50, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'AI rally continuation'},
+    'NIKL': {'price': 28900.00, 'change': 2.35, 'trend': 'UP', 'volatility': 'High', 'signal': '🟢 STRONG BUY', 'recommendation': 'Japanese strength'},
 }
 
 # Store active bots configuration
