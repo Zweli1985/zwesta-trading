@@ -56,7 +56,7 @@ API_KEY = os.getenv('API_KEY', 'your_generated_api_key_here_change_in_production
 # MT5 Credentials - DEMO (default)
 # Check multiple possible MT5 installation paths
 def find_mt5_path():
-    """Find MT5 installation path from common locations - returns path to terminal.exe"""
+    """Find MT5 installation path from common locations - returns path to terminal.exe or terminal64.exe"""
     possible_paths = [
         'C:\\Program Files\\XM Global MT5',        # XM installation (PRIMARY)
         'C:\\Program Files (x86)\\MetaTrader 5',   # MT5 default
@@ -66,11 +66,17 @@ def find_mt5_path():
     
     for path in possible_paths:
         if path and os.path.exists(path):
-            # Check for terminal.exe
+            # Check for terminal64.exe first (64-bit version, preferred)
+            terminal64_path = os.path.join(path, 'terminal64.exe')
+            if os.path.exists(terminal64_path):
+                logger.info(f"Found MT5 (64-bit) at: {terminal64_path}")
+                return terminal64_path  # Return FULL PATH to terminal64.exe
+            
+            # Fallback to terminal.exe (32-bit version)
             terminal_path = os.path.join(path, 'terminal.exe')
             if os.path.exists(terminal_path):
-                logger.info(f"Found MT5 at: {terminal_path}")
-                return terminal_path  # Return FULL PATH to terminal.exe, not folder
+                logger.info(f"Found MT5 (32-bit) at: {terminal_path}")
+                return terminal_path  # Return FULL PATH to terminal.exe
     
     logger.warning("MT5 not found in common paths - will use simulated trading as fallback")
     return None  # Return None instead of default fallback
