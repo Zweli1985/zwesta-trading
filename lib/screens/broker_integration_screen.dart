@@ -266,11 +266,16 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Broker Integration'),
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -791,6 +796,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

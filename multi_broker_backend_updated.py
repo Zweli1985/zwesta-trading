@@ -3278,54 +3278,6 @@ def start_bot():
                             logger.info(f"   Entry: ${trade['entryPrice']:.5f} | Current: ${trade['exitPrice']:.5f} | Ticket: {trade['ticket']}")
                         else:
                             logger.info(f"🟡 SIMULATED: {symbol} | P&L: ${trade['profit']:.2f}")
-                        
-                        # Store trade
-                        if bot_config['accountId'] not in demo_trades_storage:
-                            demo_trades_storage[bot_config['accountId']] = []
-                        demo_trades_storage[bot_config['accountId']].append(trade)
-                        
-                        # Record strategy performance
-                        strategy_tracker.record_trade(strategy_name, trade['profit'], symbol)
-                        
-                        # Update bot stats
-                        bot_config['totalTrades'] += 1
-                        bot_config['totalInvestment'] += trade['volume'] * trade['entryPrice']
-                        
-                        if trade['profit'] > 0:
-                            bot_config['winningTrades'] += 1
-                        else:
-                            bot_config['totalLosses'] += abs(trade['profit'])
-                        
-                        bot_config['totalProfit'] += trade['profit']
-                        
-                        # Update peak and drawdown
-                        if bot_config['totalProfit'] > bot_config['peakProfit']:
-                            bot_config['peakProfit'] = bot_config['totalProfit']
-                        
-                        drawdown = bot_config['peakProfit'] - bot_config['totalProfit']
-                        if drawdown > bot_config['maxDrawdown']:
-                            bot_config['maxDrawdown'] = drawdown
-                        
-                        # Track profit history
-                        bot_config['profitHistory'].append({
-                            'timestamp': trade['timestamp'],
-                            'profit': round(bot_config['totalProfit'], 2),
-                            'trades': bot_config['totalTrades'],
-                        })
-                        
-                        # Track daily profit
-                        today = datetime.now().strftime('%Y-%m-%d')
-                        if today not in bot_config['dailyProfits']:
-                            bot_config['dailyProfits'][today] = 0
-                        bot_config['dailyProfits'][today] += trade['profit']
-                        
-                        # Add to trade history
-                        bot_config['tradeHistory'].append(trade)
-                        trades_placed.append(trade)
-                    else:
-                        logger.warning(f"Position data not found after placing order on {symbol}")
-                else:
-                    logger.warning(f"Could not fetch positions after order for {symbol}")
                     
             except Exception as e:
                 logger.error(f"Error placing trade on {symbol}: {e}")
