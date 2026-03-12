@@ -3062,13 +3062,32 @@ def test_broker_connection():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        credential_id = str(uuid.uuid4())
-        
+        # Check if credential already exists for this user, broker, and account
         cursor.execute('''
-            INSERT OR REPLACE INTO broker_credentials 
-            (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-        ''', (credential_id, user_id, broker, account, password, server, int(is_live), datetime.now().isoformat()))
+            SELECT credential_id FROM broker_credentials
+            WHERE user_id = ? AND broker_name = ? AND account_number = ?
+        ''', (user_id, broker, account))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing credential instead of creating duplicate
+            credential_id = existing[0]
+            cursor.execute('''
+                UPDATE broker_credentials
+                SET password = ?, server = ?, is_live = ?, is_active = 1, updated_at = ?
+                WHERE credential_id = ?
+            ''', (password, server, int(is_live), datetime.now().isoformat(), credential_id))
+            logger.info(f"ℹ️ Updated existing broker credential for user {user_id}: {broker} | Account: {account}")
+        else:
+            # Create new credential only if it doesn't exist
+            credential_id = str(uuid.uuid4())
+            cursor.execute('''
+                INSERT INTO broker_credentials 
+                (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            ''', (credential_id, user_id, broker, account, password, server, int(is_live), datetime.now().isoformat(), datetime.now().isoformat()))
+            logger.info(f"✅ Created new broker credential for user {user_id}: {broker} | Account: {account}")
         
         conn.commit()
         conn.close()
