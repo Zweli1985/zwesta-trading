@@ -1730,6 +1730,49 @@ def generate_demo_trades():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/trades-public', methods=['GET'])
+def get_trades_public():
+    """Get all trades (public - no authentication required) - for demo/public bots"""
+    try:
+        trades_list = []
+        
+        # Query database for all trades
+        conn = sqlite3.connect('zwesta_trading.db')
+        cursor = conn.cursor()
+        
+        try:
+            # Get all trades from all bots
+            cursor.execute('''
+                SELECT trade_data FROM trades
+                ORDER BY timestamp DESC
+                LIMIT 1000
+            ''')
+            
+            for row in cursor.fetchall():
+                try:
+                    trade = json.loads(row[0])
+                    trades_list.append(trade)
+                except:
+                    pass
+            
+            logger.info(f"Returning {len(trades_list)} public trades")
+            return jsonify({
+                'success': True,
+                'trades': trades_list,
+                'timestamp': datetime.now().isoformat(),
+            })
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error in get_trades_public: {e}")
+        return jsonify({
+            'success': False,
+            'trades': [],
+            'error': str(e),
+            'timestamp': datetime.now().isoformat(),
+        }), 500
+
+
 # ==================== ALIAS ROUTES (for Flutter app compatibility) ====================
 @app.route('/api/trades', methods=['GET'])
 @require_session
@@ -4068,6 +4111,91 @@ def bot_status():
             
             # Calculate profit factor - capped at 99.99 to avoid JSON infinity issues
             if bot['totalLosses'] > 0:
+                profit_factor = min(bot['totalProfit'] / bot['totalLosses'], 99.99) if bot['totalProfit'] > 0 else 0
+            else:
+                profit_factor = 99.99 if bot['totalProfit'] > 0 else 0
+            
+            enhanced_bot = {
+                'botId': bot['botId'],
+                'symbol': bot['symbols'][0] if bot['symbols'] else 'EURUSD',
+                'strategy': bot['strategy'],
+                'commission': round(bot['totalProfit'] * 0.01, 2),
+                'profit': round(bot['totalProfit'], 2),
+                'runtimeFormatted': f"{int(runtime_hours)}h {int(runtime_minutes)}m",
+                'dailyProfit': round(daily_profit, 2),
+                'roi': round(roi, 2),
+                'profitFactor': round(profit_factor, 2),
+                'avgProfitPerTrade': round(bot['totalProfit'] / max(bot['totalTrades'], 1), 2),
+                'status': 'Active' if bot['enabled'] else 'Inactive',
+                'lastTradeTime': bot['tradeHistory'][-1]['time'] if bot['tradeHistory'] else bot['createdAt'],
+            }
+            bots_list.append(enhanced_bot)
+        
+        return jsonify({
+            'success': True,
+            'activeBots': len([b for b in bots_list if b['enabled']]),
+            'bots': bots_list,
+            'timestamp': datetime.now().isoformat(),
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting bot status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/bot/status-public', methods=['GET'])
+def bot_status_public():
+    """Get status of demo bots (public - no authentication required)"""
+    try:
+        bots_list = []
+        for bot in active_bots.values():
+            # Return basic info about active bots (especially demo bots)
+            # Calculate runtime
+            created = datetime.fromisoformat(bot['createdAt'])
+            runtime_seconds = (datetime.now() - created).total_seconds()
+            runtime_hours = runtime_seconds / 3600
+            runtime_minutes = (runtime_seconds % 3600) / 60
+            
+            # Calculate daily profit
+            today = datetime.now().strftime('%Y-%m-%d')
+            daily_profit = bot['dailyProfits'].get(today, bot.get('dailyProfit', 0))
+            
+            # Calculate ROI
+            investment = bot['totalInvestment']
+            roi = (bot['totalProfit'] / max(investment, 1)) * 100 if investment > 0 else 0
+            
+            # Calculate profit factor
+            if bot['totalLosses'] > 0:
+                profit_factor = min(bot['totalProfit'] / bot['totalLosses'], 99.99) if bot['totalProfit'] > 0 else 0
+            else:
+                profit_factor = 99.99 if bot['totalProfit'] > 0 else 0
+            
+            enhanced_bot = {
+                'botId': bot['botId'],
+                'symbol': bot['symbols'][0] if bot['symbols'] else 'EURUSD',
+                'strategy': bot['strategy'],
+                'commission': round(bot['totalProfit'] * 0.01, 2),
+                'profit': round(bot['totalProfit'], 2),
+                'runtimeFormatted': f"{int(runtime_hours)}h {int(runtime_minutes)}m",
+                'dailyProfit': round(daily_profit, 2),
+                'roi': round(roi, 2),
+                'profitFactor': round(profit_factor, 2),
+                'avgProfitPerTrade': round(bot['totalProfit'] / max(bot['totalTrades'], 1), 2),
+                'status': 'Active' if bot['enabled'] else 'Inactive',
+                'lastTradeTime': bot['tradeHistory'][-1]['time'] if bot['tradeHistory'] else bot['createdAt'],
+            }
+            bots_list.append(enhanced_bot)
+        
+        return jsonify({
+            'success': True,
+            'activeBots': len([b for b in bots_list if b['enabled']]),
+            'bots': bots_list,
+            'timestamp': datetime.now().isoformat(),
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting public bot status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
                 profit_factor = min(bot['totalProfit'] / bot['totalLosses'], 99.99)
             else:
                 profit_factor = 99.99 if bot['totalProfit'] > 0 else 0
