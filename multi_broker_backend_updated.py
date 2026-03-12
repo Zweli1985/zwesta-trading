@@ -3798,6 +3798,9 @@ def start_bot():
         # ✅ VALIDATE & CORRECT BOT SYMBOLS (in case they're old/unavailable)
         bot_config['symbols'] = validate_and_correct_symbols(bot_config.get('symbols', ['EURUSD']))
         
+        # We have a real MT5 connection, so never use simulated trades
+        use_simulated = False
+        
         trades_placed = []
         for symbol in bot_config['symbols'][:3]:  # Limit to 3 trades per cycle
             trade = None  # Initialize trade variable
