@@ -1538,6 +1538,8 @@ def list_commodities():
             categorized = {
                 'forex': [],
                 'commodities': [],
+                'precious_metals': [],
+                'energy': [],
                 'indices': [],
                 'stocks': []
             }
@@ -4711,7 +4713,7 @@ def get_user_bots(user_id):
     # Verify user is accessing only their own bots
     if request.user_id != user_id:
         return jsonify({'success': False, 'error': 'Unauthorized: Cannot access other user bots'}), 403
-    """Get all bots for a specific user"""
+    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
