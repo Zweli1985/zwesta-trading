@@ -9,6 +9,7 @@ import '../services/trading_service.dart';
 import '../utils/constants.dart';
 import '../utils/environment_config.dart';
 import '../widgets/custom_widgets.dart';
+import '../widgets/bot_status_indicator.dart';
 import 'bot_analytics_screen.dart';
 import 'bot_configuration_screen.dart';
 
@@ -85,6 +86,12 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
         }
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _deleteBot(String botId) async {
@@ -397,25 +404,8 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                     ],
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: bot['enabled']
-                                        ? Colors.green
-                                        : Colors.grey,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    bot['enabled'] ? 'ACTIVE' : 'INACTIVE',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                    ),
-                                  ),
+                                BotRunningBadge(
+                                  isRunning: bot['enabled'] == true || bot['enabled'] == 1,
                                 ),
                               ],
                             ),

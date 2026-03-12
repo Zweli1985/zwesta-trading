@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
 import '../services/trading_service.dart';
@@ -13,6 +14,7 @@ import '../utils/constants.dart';
 import '../utils/environment_config.dart';
 import '../widgets/custom_widgets.dart';
 import '../widgets/logo_widget.dart';
+import '../widgets/bot_status_indicator.dart';
 import 'trades_screen.dart';
 import 'account_management_screen.dart';
 import 'bot_dashboard_screen.dart';
@@ -40,11 +42,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _activeBotsList = [];
   bool _botsLoading = true;
   String? _botsError;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchActiveBots();
+    _startAutoRefresh();
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        _fetchActiveBots();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchActiveBots() async {
@@ -681,23 +699,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'ACTIVE',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          BotRunningBadge(
+                            isRunning: bot['enabled'] == true || bot['enabled'] == 1,
                           ),
                         ],
                       ),
