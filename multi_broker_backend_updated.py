@@ -865,9 +865,12 @@ class MT5Connection(BrokerConnection):
             result = self.mt5.order_send(request_dict)
 
             if result is None:
+                logger.error(f"MT5 order_send returned None for {symbol} {order_type} vol={volume} - terminal may have disconnected")
+                logger.error(f"  Request was: {request_dict}")
                 return {'success': False, 'error': 'MT5 order_send failed - terminal may have disconnected'}
             
             if result.retcode != self.mt5.TRADE_RETCODE_DONE:
+                logger.warning(f"MT5 order failed: symbol={symbol}, type={order_type}, retcode={result.retcode}, comment={result.comment}")
                 return {'success': False, 'error': f'MT5 error: {result.comment}'}
 
             return {
@@ -908,9 +911,11 @@ class MT5Connection(BrokerConnection):
             result = self.mt5.order_send(request_dict)
             
             if result is None:
+                logger.error(f"MT5 order_send returned None when closing position {position_id} - terminal disconnected")
                 return {'success': False, 'error': 'MT5 order_send failed - terminal may have disconnected'}
             
             if result.retcode != self.mt5.TRADE_RETCODE_DONE:
+                logger.warning(f"MT5 close failed: position={position_id}, retcode={result.retcode}, comment={result.comment}")
                 return {'success': False, 'error': f'MT5 error: {result.comment}'}
 
             return {'success': True, 'broker': 'MT5'}
@@ -2310,11 +2315,12 @@ def get_live_prices_from_mt5():
                         price_change = 0
                 
                     # Determine trend based on CALCULATED price change
-                    if price_change > 0.0001:  # Slightly UP
+                    # 0.002% threshold = 20 pips movement for 1.08 EURUSD = realistic demo price movement
+                    if price_change > 0.0005:  # UP trend
                         trend = 'UP'
-                    elif price_change < -0.0001:  # Slightly DOWN
+                    elif price_change < -0.0005:  # DOWN trend
                         trend = 'DOWN'
-                    else:  # Essentially flat (difference is rounding error)
+                    else:  # Essentially flat (difference within rounding error)
                         trend = 'FLAT'
                     
                     # Update previous price for next cycle
