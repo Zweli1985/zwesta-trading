@@ -3798,7 +3798,15 @@ def get_commodity_market_data():
             sell_count = sum(1 for s in commodity_market_data.values() if 'SELL' in s.get('signal', ''))
             flat_count = sum(1 for s in commodity_market_data.values() if 'CONSOLIDAT' in s.get('signal', '') or 'VOLATILE' in s.get('signal', ''))
             hold_count = sum(1 for s in commodity_market_data.values() if s.get('signal', '') == '🟡 HOLD')
-            logger.debug(f"[API] Returning commodities data: {buy_count} BUY, {sell_count} SELL, {flat_count} FLAT, {hold_count} HOLD")
+            
+            # Log actual signal values for key symbols
+            key_symbols = ['EURUSD', 'GBPUSD', 'OILK', 'XPTUSD']
+            for sym in key_symbols:
+                if sym in commodity_market_data:
+                    sig = commodity_market_data[sym].get('signal', 'UNKNOWN')
+                    logger.debug(f"[API] {sym}: signal='{sig}'")
+            
+            logger.debug(f"[API] Returning commodities: {buy_count} BUY, {sell_count} SELL, {flat_count} FLAT, {hold_count} HOLD")
             
             return jsonify({
                 'success': True,
