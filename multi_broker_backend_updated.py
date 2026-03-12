@@ -2327,47 +2327,56 @@ def get_live_prices_from_mt5():
                 # Generate signal based on MULTIPLE factors: price change, spread, volatility
                 abs_change = abs(price_change)
                 
-                # Signal logic: Consider both magnitude and direction
+                # Signal logic: Prioritize DIRECTION over magnitude
+                # ANY upward movement = BUY signal, ANY downward = SELL signal
                 if trend == 'UP':
                     if abs_change >= 1.0:
                         signal = '🟢 STRONG BUY'
-                    elif abs_change >= 0.1:
-                        signal = '🟢 BUY'
-                    elif spread_percent < 0.10:  # If UP and tight spread = bullish
+                    elif abs_change >= 0.05:  # Very small change is enough for BUY
                         signal = '🟢 BUY'
                     else:
-                        signal = '🟡 HOLD'
+                        # Even tiny UP movement shows as BUY if spread is tight
+                        if spread_percent < 0.15:
+                            signal = '🟢 BUY'
+                        else:
+                            signal = '🟡 WEAK BUY'  # Wide spread = less conviction
+                            
                 elif trend == 'DOWN':
                     if abs_change >= 1.0:
                         signal = '🔴 STRONG SELL'
-                    elif abs_change >= 0.1:
-                        signal = '🔴 SELL'
-                    elif spread_percent > 0.20:  # If DOWN and wide spread = bearish
+                    elif abs_change >= 0.05:  # Very small change is enough for SELL
                         signal = '🔴 SELL'
                     else:
-                        signal = '🟡 HOLD'
-                else:  # FLAT trend
+                        # Even tiny DOWN movement shows as SELL if spread is wide
+                        if spread_percent > 0.15:
+                            signal = '🔴 SELL'
+                        else:
+                            signal = '🟡 WEAK SELL'  # Tight spread = less conviction
+                            
+                else:  # FLAT trend (current_price == previous_price, exactly same)
+                    # Only show FLAT signals if prices truly haven't moved
                     if volatility == 'Very High' or volatility == 'High':
                         signal = '🟡 VOLATILE - CAUTION'
                     else:
-                        signal = '🟡 HOLD'
+                        signal = '🟡 CONSOLIDATING'
                 
-                # Determine recommendation based on volatility + trend
+                # Determine recommendation based on signal
                 if 'STRONG BUY' in signal:
                     recommendation = 'Strong uptrend - excellent entry opportunity'
                 elif 'BUY' in signal:
-                    recommendation = 'Positive momentum - good entry point'
+                    recommendation = 'Upward momentum - good entry point'
+                elif 'WEAK BUY' in signal:
+                    recommendation = 'Slight upward pressure - monitor'
                 elif 'STRONG SELL' in signal:
                     recommendation = 'Strong downtrend - avoid or consider short'
                 elif 'SELL' in signal:
-                    recommendation = 'Negative momentum - risky for longs'
+                    recommendation = 'Downward momentum - risky for longs'
+                elif 'WEAK SELL' in signal:
+                    recommendation = 'Slight downward pressure - monitor'
                 elif 'VOLATILE' in signal:
-                    recommendation = f'{volatility} volatility - wait for clearer direction'
-                else:  # HOLD
-                    if volatility in ['High', 'Very High']:
-                        recommendation = f'{volatility} volatility with no clear direction'
-                    else:
-                        recommendation = 'Consolidating - monitor for breakout'
+                    recommendation = f'{volatility} volatility - wait for direction'
+                else:  # CONSOLIDATING
+                    recommendation = 'Consolidating - monitor for breakout'
                 
                 live_prices[symbol] = {
                     'price': round(current_price, 5),
