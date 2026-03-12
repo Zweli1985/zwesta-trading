@@ -4196,35 +4196,6 @@ def bot_status_public():
     except Exception as e:
         logger.error(f"Error getting public bot status: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-                profit_factor = min(bot['totalProfit'] / bot['totalLosses'], 99.99)
-            else:
-                profit_factor = 99.99 if bot['totalProfit'] > 0 else 0
-            
-            enhanced_bot = bot.copy()
-            enhanced_bot.update({
-                'runtimeHours': round(runtime_hours, 2),
-                'runtimeMinutes': int(runtime_minutes),
-                'runtimeSeconds': int(runtime_seconds),
-                'runtimeFormatted': f"{int(runtime_hours)}h {int(runtime_minutes)}m",
-                'dailyProfit': round(daily_profit, 2),
-                'roi': round(roi, 2),
-                'profitFactor': round(profit_factor, 2),
-                'avgProfitPerTrade': round(bot['totalProfit'] / max(bot['totalTrades'], 1), 2),
-                'status': 'Active' if bot['enabled'] else 'Inactive',
-                'lastTradeTime': bot['tradeHistory'][-1]['time'] if bot['tradeHistory'] else bot['createdAt'],
-            })
-            bots_list.append(enhanced_bot)
-        
-        return jsonify({
-            'success': True,
-            'activeBots': len([b for b in bots_list if b['enabled']]),
-            'bots': bots_list,
-            'timestamp': datetime.now().isoformat(),
-        }), 200
-    
-    except Exception as e:
-        logger.error(f"Error getting bot status: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/bot/stop/<bot_id>', methods=['POST'])
