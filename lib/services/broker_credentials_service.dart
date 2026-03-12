@@ -97,7 +97,18 @@ class BrokerCredentialsService extends ChangeNotifier {
             .map((c) => BrokerCredential.fromJson(c))
             .toList();
 
-        _credentials = credentialsList;
+        // Deduplicate: keep only latest credential for each broker+account combo
+        final Map<String, BrokerCredential> deduped = {};
+        for (var cred in credentialsList) {
+          final key = '${cred.broker}_${cred.accountNumber}';
+          // Compare by createdAt - keep the more recent one
+          if (!deduped.containsKey(key) || 
+              cred.createdAt.isAfter(deduped[key]!.createdAt)) {
+            deduped[key] = cred;
+          }
+        }
+        
+        _credentials = deduped.values.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         
         // Set active credential if available
         if (_credentials.isNotEmpty) {

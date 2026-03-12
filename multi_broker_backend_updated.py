@@ -441,6 +441,50 @@ def init_database():
         )
     ''')
     
+    # VPS Configuration table - stores VPS connection details
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS vps_config (
+            vps_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            vps_name TEXT NOT NULL,
+            vps_ip TEXT NOT NULL,
+            vps_port INTEGER DEFAULT 3389,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            rdp_port INTEGER DEFAULT 3389,
+            api_port INTEGER DEFAULT 5000,
+            mt5_path TEXT DEFAULT 'C:\\Program Files\\MetaTrader 5\\terminal64.exe',
+            notes TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            last_connection TEXT,
+            status TEXT DEFAULT 'disconnected',
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
+    # VPS Monitoring table - tracks VPS health and uptime
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS vps_monitoring (
+            monitoring_id TEXT PRIMARY KEY,
+            vps_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            last_heartbeat TEXT,
+            mt5_status TEXT DEFAULT 'offline',
+            backend_running BOOLEAN DEFAULT 0,
+            cpu_usage REAL DEFAULT 0,
+            memory_usage REAL DEFAULT 0,
+            uptime_hours INTEGER DEFAULT 0,
+            active_bots INTEGER DEFAULT 0,
+            total_value_locked REAL DEFAULT 0,
+            last_check TEXT,
+            created_at TEXT,
+            FOREIGN KEY (vps_id) REFERENCES vps_config(vps_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     logger.info("Database initialized")
@@ -1095,6 +1139,397 @@ def health():
         'version': '2.0.0',
         'timestamp': datetime.now().isoformat(),
     })
+
+
+# ==================== VPS MANAGEMENT ENDPOINTS ====================
+
+@app.route('/api/vps/config', methods=['POST'])
+@require_session
+def add_vps_config():
+    """Add/update VPS configuration for user"""
+    try:
+        user_id = request.user_id
+        data = request.json
+        
+        if not all([data.get('vps_name'), data.get('vps_ip'), data.get('username'), data.get('password')]):
+            return jsonify({'success': False, 'error': 'Missing required fields: vps_name, vps_ip, username, password'}), 400
+        
+        vps_id = data.get('vps_id') or f"vps_{uuid.uuid4().hex[:8]}"
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if updating existing VPS
+        if data.get('vps_id'):
+            cursor.execute('SELECT vps_id FROM vps_config WHERE vps_id = ? AND user_id = ?', (vps_id, user_id))
+            if cursor.fetchone():
+                cursor.execute('''
+                    UPDATE vps_config SET vps_name = ?, vps_ip = ?, vps_port = ?, username = ?, 
+                    password = ?, rdp_port = ?, api_port = ?, mt5_path = ?, notes = ?, updated_at = ?
+                    WHERE vps_id = ? AND user_id = ?
+                ''', (
+                    data.get('vps_name'), data.get('vps_ip'), data.get('vps_port', 3389),
+                    data.get('username'), data.get('password'), data.get('rdp_port', 3389),
+                    data.get('api_port', 5000), data.get('mt5_path', 'C:\\Program Files\\MetaTrader 5\\terminal64.exe'),
+                    data.get('notes'), datetime.now().isoformat(), vps_id, user_id
+                ))
+            else:
+                return jsonify({'success': False, 'error': 'VPS not found'}), 404
+        else:
+            # Create new VPS config
+            cursor.execute('''
+                INSERT INTO vps_config (vps_id, user_id, vps_name, vps_ip, vps_port, username, 
+                password, rdp_port, api_port, mt5_path, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                vps_id, user_id, data.get('vps_name'), data.get('vps_ip'), 
+                data.get('vps_port', 3389), data.get('username'), data.get('password'),
+                data.get('rdp_port', 3389), data.get('api_port', 5000),
+                data.get('mt5_path', 'C:\\Program Files\\MetaTrader 5\\terminal64.exe'),
+                data.get('notes'), datetime.now().isoformat(), datetime.now().isoformat()
+            ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ VPS config saved: {data.get('vps_name')} ({data.get('vps_ip')}:{data.get('vps_port', 3389)}) for user {user_id}")
+        
+        return jsonify({
+            'success': True,
+            'vps_id': vps_id,
+            'message': 'VPS configuration saved successfully'
+        }), 201
+    
+    except Exception as e:
+        logger.error(f"❌ Error saving VPS config: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/list', methods=['GET'])
+@require_session
+def list_vps_configs():
+    """Get all VPS configurations for authenticated user"""
+    try:
+        user_id = request.user_id
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT vps_id, vps_name, vps_ip, vps_port, rdp_port, api_port, 
+            mt5_path, status, last_connection, created_at
+            FROM vps_config WHERE user_id = ? ORDER BY created_at DESC
+        ''', (user_id,))
+        
+        vps_configs = []
+        for row in cursor.fetchall():
+            vps_configs.append({
+                'vps_id': row[0],
+                'vps_name': row[1],
+                'vps_ip': row[2],
+                'vps_port': row[3],
+                'rdp_port': row[4],
+                'api_port': row[5],
+                'mt5_path': row[6],
+                'status': row[7],
+                'last_connection': row[8],
+                'created_at': row[9]
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'vps_configs': vps_configs,
+            'count': len(vps_configs)
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error listing VPS configs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/<vps_id>/test-connection', methods=['POST'])
+@require_session
+def test_vps_connection(vps_id):
+    """Test connection to VPS"""
+    try:
+        user_id = request.user_id
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT vps_ip, vps_port, username, password, rdp_port, api_port
+            FROM vps_config WHERE vps_id = ? AND user_id = ?
+        ''', (vps_id, user_id))
+        
+        vps_data = cursor.fetchone()
+        if not vps_data:
+            return jsonify({'success': False, 'error': 'VPS configuration not found'}), 404
+        
+        vps_ip, vps_port, username, password, rdp_port, api_port = vps_data
+        
+        # Test ping to VPS
+        logger.info(f"🔌 Testing VPS connection to {vps_ip}:{vps_port}")
+        result = subprocess.run(
+            f'ping -n 1 -w 2000 {vps_ip}',
+            capture_output=True,
+            text=True,
+            shell=True,
+            timeout=5
+        )
+        
+        ping_success = result.returncode == 0
+        
+        # Try to reach backend API on VPS
+        api_reachable = False
+        try:
+            import requests
+            response = requests.get(
+                f'http://{vps_ip}:{api_port}/api/health',
+                timeout=5
+            )
+            api_reachable = response.status_code == 200
+        except:
+            api_reachable = False
+        
+        # Update last connection time
+        cursor.execute('''
+            UPDATE vps_config SET last_connection = ?, status = ?
+            WHERE vps_id = ?
+        ''', (
+            datetime.now().isoformat(),
+            'connected' if (ping_success or api_reachable) else 'disconnected',
+            vps_id
+        ))
+        conn.commit()
+        conn.close()
+        
+        status = 'connected' if (ping_success or api_reachable) else 'disconnected'
+        logger.info(f"✅ VPS test result: {status} (Ping: {ping_success}, API: {api_reachable})")
+        
+        return jsonify({
+            'success': True,
+            'vps_id': vps_id,
+            'vps_ip': vps_ip,
+            'status': status,
+            'ping_reachable': ping_success,
+            'api_reachable': api_reachable,
+            'rdp_port': rdp_port,
+            'api_port': api_port,
+            'message': f'VPS is {status}'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error testing VPS connection: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/<vps_id>/status', methods=['GET'])
+@require_session
+def get_vps_status(vps_id):
+    """Get VPS status and monitoring data"""
+    try:
+        user_id = request.user_id
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT vps_id, vps_name, vps_ip, status, last_connection
+            FROM vps_config WHERE vps_id = ? AND user_id = ?
+        ''', (vps_id, user_id))
+        
+        vps_config = cursor.fetchone()
+        if not vps_config:
+            return jsonify({'success': False, 'error': 'VPS not found'}), 404
+        
+        # Get monitoring data
+        cursor.execute('''
+            SELECT mt5_status, backend_running, cpu_usage, memory_usage, uptime_hours, 
+            active_bots, total_value_locked, last_check
+            FROM vps_monitoring WHERE vps_id = ? ORDER BY created_at DESC LIMIT 1
+        ''', (vps_id,))
+        
+        monitoring = cursor.fetchone()
+        conn.close()
+        
+        status_obj = {
+            'vps_id': vps_config[0],
+            'vps_name': vps_config[1],
+            'vps_ip': vps_config[2],
+            'connection_status': vps_config[3],
+            'last_connection': vps_config[4],
+        }
+        
+        if monitoring:
+            status_obj.update({
+                'mt5_status': monitoring[0],
+                'backend_running': bool(monitoring[1]),
+                'cpu_usage': monitoring[2],
+                'memory_usage': monitoring[3],
+                'uptime_hours': monitoring[4],
+                'active_bots': monitoring[5],
+                'total_value_locked': monitoring[6],
+                'last_check': monitoring[7]
+            })
+        
+        return jsonify({
+            'success': True,
+            'vps_status': status_obj
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error getting VPS status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/<vps_id>/remote-access', methods=['POST'])
+@require_session
+def get_vps_remote_access(vps_id):
+    """Get RDP connection details for remote desktop access to VPS"""
+    try:
+        user_id = request.user_id
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT vps_ip, rdp_port, username, vps_name
+            FROM vps_config WHERE vps_id = ? AND user_id = ?
+        ''', (vps_id, user_id))
+        
+        vps_data = cursor.fetchone()
+        conn.close()
+        
+        if not vps_data:
+            return jsonify({'success': False, 'error': 'VPS not found'}), 404
+        
+        vps_ip, rdp_port, username, vps_name = vps_data
+        
+        # Generate RDP connection string
+        rdp_server = f"{vps_ip}:{rdp_port}" if rdp_port != 3389 else vps_ip
+        
+        logger.info(f"✅ RDP connection details requested for {vps_name}")
+        
+        return jsonify({
+            'success': True,
+            'vps_name': vps_name,
+            'rdp_server': rdp_server,
+            'rdp_port': rdp_port,
+            'username': username,
+            'connection_string': f'mstsc /v:{rdp_server}',
+            'instructions': [
+                f'1. Copy the connection string: mstsc /v:{rdp_server}',
+                f'2. Run it in Windows Run dialog (Win+R)',
+                f'3. Username: {username}',
+                f'4. Enter your password when prompted',
+                f'5. You will have remote access to MT5 on the VPS'
+            ]
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error getting RDP details: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/<vps_id>/delete', methods=['DELETE', 'POST'])
+@require_session
+def delete_vps_config(vps_id):
+    """Delete VPS configuration"""
+    try:
+        user_id = request.user_id
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify ownership
+        cursor.execute('SELECT vps_name FROM vps_config WHERE vps_id = ? AND user_id = ?', (vps_id, user_id))
+        vps = cursor.fetchone()
+        if not vps:
+            return jsonify({'success': False, 'error': 'VPS not found'}), 404
+        
+        # Delete VPS config
+        cursor.execute('DELETE FROM vps_config WHERE vps_id = ?', (vps_id,))
+        cursor.execute('DELETE FROM vps_monitoring WHERE vps_id = ?', (vps_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ VPS deleted: {vps[0]}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'VPS {vps[0]} deleted successfully'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error deleting VPS: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vps/<vps_id>/heartbeat', methods=['POST'])
+def vps_heartbeat(vps_id):
+    """VPS reports its status (called from VPS backend for monitoring)
+    
+    This endpoint allows VPS instances to periodically report their health status.
+    No authentication required - VPS identifies itself by vps_id.
+    
+    Expected payload:
+    {
+        "mt5_status": "online|offline",
+        "backend_running": true/false,
+        "cpu_usage": 45.5,
+        "memory_usage": 62.3,
+        "uptime_hours": 24,
+        "active_bots": 3,
+        "total_value_locked": 50000.00
+    }
+    """
+    try:
+        data = request.json or {}
+        
+        logger.info(f"💓 VPS heartbeat from {vps_id}: MT5={data.get('mt5_status')}, Backend={data.get('backend_running')}")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create or update monitoring record
+        monitoring_id = f"mon_{vps_id}_{int(time.time())}"
+        
+        cursor.execute('''
+            INSERT INTO vps_monitoring (
+                monitoring_id, vps_id, user_id, last_heartbeat, mt5_status, backend_running,
+                cpu_usage, memory_usage, uptime_hours, active_bots, total_value_locked, last_check, created_at
+            )
+            VALUES (?, ?, (SELECT user_id FROM vps_config WHERE vps_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            monitoring_id, vps_id, vps_id, datetime.now().isoformat(),
+            data.get('mt5_status', 'offline'), data.get('backend_running', False),
+            data.get('cpu_usage', 0), data.get('memory_usage', 0),
+            data.get('uptime_hours', 0), data.get('active_bots', 0),
+            data.get('total_value_locked', 0), datetime.now().isoformat(), datetime.now().isoformat()
+        ))
+        
+        # Update VPS config status
+        cursor.execute('''
+            UPDATE vps_config SET status = ?, last_connection = ?
+            WHERE vps_id = ?
+        ''', ('connected' if data.get('backend_running') else 'offline', datetime.now().isoformat(), vps_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'vps_id': vps_id,
+            'message': 'Heartbeat received'
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"❌ Error processing VPS heartbeat: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/brokers/list', methods=['GET'])
@@ -2916,7 +3351,7 @@ def get_broker_details(broker_id):
 @app.route('/api/broker/credentials', methods=['GET'])
 @require_session
 def get_broker_credentials():
-    """Get all broker credentials for authenticated user"""
+    """Get all broker credentials for authenticated user (deduped - latest only)"""
     try:
         user_id = request.user_id
         conn = get_db_connection()
@@ -2926,25 +3361,31 @@ def get_broker_credentials():
             SELECT credential_id, broker_name, account_number, server, is_live, is_active, created_at
             FROM broker_credentials
             WHERE user_id = ? AND is_active = 1
-            ORDER BY created_at DESC
+            ORDER BY broker_name, account_number, created_at DESC
         ''', (user_id,))
         
         rows = cursor.fetchall()
         conn.close()
         
-        credentials = []
-        for row in rows:
-            credentials.append({
-                'credential_id': row[0],
-                'broker': row[1],
-                'account_number': row[2],
-                'server': row[3],
-                'is_live': bool(row[4]),
-                'is_active': bool(row[5]),
-                'created_at': row[6],
-            })
+        # Deduplicate: keep only the latest credential for each broker+account combo
+        seen = {}  # key: (broker_name, account_number), value: credential_dict
         
-        logger.info(f"✅ Retrieved {len(credentials)} broker credentials for user {user_id}")
+        for row in rows:
+            key = (row[1], row[2])  # (broker_name, account_number)
+            if key not in seen:  # Keep first (most recent due to ORDER BY DESC)
+                seen[key] = {
+                    'credential_id': row[0],
+                    'broker': row[1],
+                    'account_number': row[2],
+                    'server': row[3],
+                    'is_live': bool(row[4]),
+                    'is_active': bool(row[5]),
+                    'created_at': row[6],
+                }
+        
+        credentials = list(seen.values())
+        
+        logger.info(f"✅ Retrieved {len(credentials)} unique broker credentials for user {user_id}")
         return jsonify({
             'success': True,
             'credentials': credentials,
@@ -4222,45 +4663,54 @@ def bot_status():
             if bot.get('user_id') != user_id:
                 continue
             
-            # Calculate runtime
-            created = datetime.fromisoformat(bot['createdAt'])
+            # Calculate runtime (safely access createdAt)
+            created = datetime.fromisoformat(bot.get('createdAt', datetime.now().isoformat()))
             runtime_seconds = (datetime.now() - created).total_seconds()
             runtime_hours = runtime_seconds / 3600
             runtime_minutes = (runtime_seconds % 3600) / 60
             
-            # Calculate daily profit
+            # Calculate daily profit (safely access dailyProfits)
             today = datetime.now().strftime('%Y-%m-%d')
-            daily_profit = bot['dailyProfits'].get(today, bot.get('dailyProfit', 0))
+            daily_profits = bot.get('dailyProfits', {})
+            daily_profit = daily_profits.get(today, bot.get('dailyProfit', 0))
             
-            # Calculate ROI
-            investment = bot['totalInvestment']
-            roi = (bot['totalProfit'] / max(investment, 1)) * 100 if investment > 0 else 0
+            # Calculate ROI (safely access totalInvestment and totalProfit)
+            investment = bot.get('totalInvestment', 0)
+            total_profit = bot.get('totalProfit', 0)
+            roi = (total_profit / max(investment, 1)) * 100 if investment > 0 else 0
             
             # Calculate profit factor - capped at 99.99 to avoid JSON infinity issues
-            if bot['totalLosses'] > 0:
-                profit_factor = min(bot['totalProfit'] / bot['totalLosses'], 99.99) if bot['totalProfit'] > 0 else 0
+            total_losses = bot.get('totalLosses', 0)
+            if total_losses > 0:
+                profit_factor = min(total_profit / total_losses, 99.99) if total_profit > 0 else 0
             else:
-                profit_factor = 99.99 if bot['totalProfit'] > 0 else 0
+                profit_factor = 99.99 if total_profit > 0 else 0
+            
+            # Safely access symbols and other fields
+            symbols = bot.get('symbols', [])
+            symbol = symbols[0] if symbols else 'EURUSD'
+            trade_history = bot.get('tradeHistory', [])
+            last_trade_time = trade_history[-1].get('time') if trade_history else bot.get('createdAt', datetime.now().isoformat())
             
             enhanced_bot = {
-                'botId': bot['botId'],
-                'symbol': bot['symbols'][0] if bot['symbols'] else 'EURUSD',
-                'strategy': bot['strategy'],
-                'commission': round(bot['totalProfit'] * 0.01, 2),
-                'profit': round(bot['totalProfit'], 2),
+                'botId': bot.get('botId', 'unknown'),
+                'symbol': symbol,
+                'strategy': bot.get('strategy', 'Unknown'),
+                'commission': round(total_profit * 0.01, 2),
+                'profit': round(total_profit, 2),
                 'runtimeFormatted': f"{int(runtime_hours)}h {int(runtime_minutes)}m",
                 'dailyProfit': round(daily_profit, 2),
                 'roi': round(roi, 2),
                 'profitFactor': round(profit_factor, 2),
-                'avgProfitPerTrade': round(bot['totalProfit'] / max(bot['totalTrades'], 1), 2),
-                'status': 'Active' if bot['enabled'] else 'Inactive',
-                'lastTradeTime': bot['tradeHistory'][-1]['time'] if bot['tradeHistory'] else bot['createdAt'],
+                'avgProfitPerTrade': round(total_profit / max(bot.get('totalTrades', 1), 1), 2),
+                'status': 'Active' if bot.get('enabled', True) else 'Inactive',
+                'lastTradeTime': last_trade_time,
             }
             bots_list.append(enhanced_bot)
         
         return jsonify({
             'success': True,
-            'activeBots': len([b for b in bots_list if b['enabled']]),
+            'activeBots': len([b for b in bots_list if b.get('enabled', True)]),
             'bots': bots_list,
             'timestamp': datetime.now().isoformat(),
         }), 200
