@@ -15,51 +15,241 @@
             logger.error(f"Error transferring funds: {e}")
             return {'success': False, 'error': str(e)}
 class IGConnection(BrokerConnection):
-    """IG Broker Connection"""
+    """IG Broker Connection - Full REST API Integration"""
+    
+    BASE_URL = "https://api.ig.com/gateway/deal"
+    
     def __init__(self, credentials: Dict = None):
         super().__init__(BrokerType.IG, credentials)
         self.api_key = credentials.get('api_key') if credentials else None
+        self.ig_username = credentials.get('username') if credentials else None
+        self.ig_password = credentials.get('password') if credentials else None
         self.account_id = credentials.get('account_id') if credentials else None
         self.connected = False
         self.session = None
+        self.auth_token = None
+        self.client_token = None
 
     def connect(self) -> bool:
+        """Authenticate with IG Markets REST API"""
         try:
             import requests
             self.session = requests.Session()
-            self.session.headers.update({
+            
+            # Step 1: Authenticate and get token
+            auth_url = f"{self.BASE_URL}/session"
+            auth_payload = {
+                "identifier": self.ig_username,
+                "password": self.ig_password
+            }
+            
+            headers = {
                 'X-IG-API-KEY': self.api_key,
                 'Content-Type': 'application/json',
-            })
-            # Authenticate here (login endpoint)
-            self.connected = True
-            return True
+                'Accept': 'application/json; charset=UTF-8'
+            }
+            
+            auth_response = requests.post(
+                auth_url,
+                json=auth_payload,
+                headers=headers,
+                timeout=10
+            )
+            
+            if auth_response.status_code == 200:
+                auth_data = auth_response.json()
+                self.auth_token = auth_data.get('authToken')
+                self.client_token = auth_data.get('clientToken')
+                self.account_id = auth_data.get('accountId', self.account_id)
+                
+                # Update headers with auth token
+                self.session.headers.update({
+                    'X-IG-API-KEY': self.api_key,
+                    'X-SECURITY-TOKEN': self.auth_token,
+                    'CST': self.client_token,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json; charset=UTF-8'
+                })
+                
+                self.connected = True
+                logger.info(f"✅ IG Markets connected | Account: {self.account_id}")
+                return True
+            else:
+                logger.error(f"IG auth failed: {auth_response.text}")
+                return False
+                
         except Exception as e:
             logger.error(f"IG connect error: {e}")
+            self.connected = False
             return False
 
     def disconnect(self) -> bool:
-        self.connected = False
-        self.session = None
-        return True
+        """Logout from IG Markets"""
+        try:
+            if self.session and self.connected:
+                logout_url = f"{self.BASE_URL}/session"
+                self.session.delete(logout_url, timeout=10)
+            self.connected = False
+            self.session = None
+            return True
+        except Exception as e:
+            logger.error(f"IG disconnect error: {e}")
+            return False
 
     def get_account_info(self) -> Dict:
-        return {'accountId': self.account_id, 'broker': 'IG'}
+        """Get IG account information"""
+        try:
+            url = f"{self.BASE_URL}/accounts"
+            response = self.session.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                accounts = response.json().get('accounts', [])
+                for account in accounts:
+                    if account.get('accountId') == self.account_id:
+                        return {
+                            'accountId': account.get('accountId'),
+                            'accountName': account.get('accountName'),
+                            'preferred': account.get('preferred'),
+                            'currency': account.get('accountCurrency'),
+                            'broker': 'IG Markets'
+                        }
+            return {'error': 'Account not found'}
+        except Exception as e:
+            logger.error(f"IG get_account_info error: {e}")
+            return {'error': str(e)}
 
     def get_positions(self) -> List[Dict]:
-        return []
+        """Get open positions from IG Markets"""
+        try:
+            url = f"{self.BASE_URL}/positions"
+            response = self.session.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                positions_data = response.json().get('positions', [])
+                positions = []
+                for pos in positions_data:
+                    positions.append({
+                        'positionId': pos.get('position', {}).get('dealId'),
+                        'symbol': pos.get('market', {}).get('instrumentCode'),
+                        'volume': pos.get('position', {}).get('size'),
+                        'direction': pos.get('position', {}).get('direction'),
+                        'openLevel': pos.get('position', {}).get('openLevel'),
+                        'profit': pos.get('position', {}).get('profit'),
+                        'broker': 'IG Markets'
+                    })
+                return positions
+            return []
+        except Exception as e:
+            logger.error(f"IG get_positions error: {e}")
+            return []
 
-    def place_order(self, symbol: str, order_type: str, volume: float, **kwargs) -> Dict:
+    def place_order(self, symbol: str, order_type: str, volume: float, direction: str = 'BUY', **kwargs) -> Dict:
+        """Place an order on IG Markets"""
         if not self.connected:
-            return {'success': False, 'error': 'Not connected to IG'}
-        # Call IG API endpoint here
-        return {'success': True, 'broker': 'IG', 'symbol': symbol, 'type': order_type, 'volume': volume}
+            return {'success': False, 'error': 'Not connected to IG Markets'}
+        
+        try:
+            url = f"{self.BASE_URL}/positions/otc"
+            
+            order_payload = {
+                'currencyCode': 'USD',
+                'direction': direction.upper(),
+                'epic': symbol,  # IG uses EPIC codes
+                'orderType': 'MARKET' if order_type.upper() == 'MARKET' else 'PENDING',
+                'size': volume,
+                'stopDistance': kwargs.get('stopLoss', 50),
+                'limitDistance': kwargs.get('takeProfit', 100),
+                'forceOpen': True,
+                'dealReference': f"bot_{uuid.uuid4().hex[:8]}"
+            }
+            
+            response = self.session.post(url, json=order_payload, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                return {
+                    'success': True,
+                    'dealId': result.get('dealReference'),
+                    'orderId': result.get('dealId'),
+                    'status': 'PENDING' if result.get('reason') else 'ACCEPTED',
+                    'broker': 'IG Markets',
+                    'symbol': symbol,
+                    'volume': volume,
+                    'direction': direction
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': response.json().get('errorCode', 'Order rejected')
+                }
+        except Exception as e:
+            logger.error(f"IG place_order error: {e}")
+            return {'success': False, 'error': str(e)}
 
-    def close_position(self, position_id: str) -> Dict:
-        return {'success': True, 'broker': 'IG', 'positionId': position_id}
+    def close_position(self, position_id: str, **kwargs) -> Dict:
+        """Close a position on IG Markets"""
+        if not self.connected:
+            return {'success': False, 'error': 'Not connected to IG Markets'}
+        
+        try:
+            url = f"{self.BASE_URL}/positions/otc/{position_id}"
+            
+            close_payload = {
+                'orderType': 'MARKET',
+                'size': kwargs.get('size', 1)
+            }
+            
+            response = self.session.delete(url, json=close_payload, timeout=10)
+            
+            if response.status_code == 200:
+                return {
+                    'success': True,
+                    'positionId': position_id,
+                    'status': 'CLOSED',
+                    'broker': 'IG Markets'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Failed to close position'
+                }
+        except Exception as e:
+            logger.error(f"IG close_position error: {e}")
+            return {'success': False, 'error': str(e)}
 
-    def get_trades(self) -> List[Dict]:
-        return []
+    def get_trades(self, limit: int = 50) -> List[Dict]:
+        """Get trade history from IG Markets"""
+        try:
+            url = f"{self.BASE_URL}/history/transactions"
+            params = {
+                'pageSize': limit,
+                'type': 'ALL'
+            }
+            
+            response = self.session.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                transactions = response.json().get('transactions', [])
+                trades = []
+                for txn in transactions:
+                    trades.append({
+                        'dealId': txn.get('transactionId'),
+                        'symbol': txn.get('instrumentCode'),
+                        'type': txn.get('transactionType'),
+                        'status': txn.get('status'),
+                        'openDate': txn.get('openDateUTC'),
+                        'closeDate': txn.get('closeDateUTC'),
+                        'size': txn.get('size'),
+                        'openLevel': txn.get('openLevel'),
+                        'closeLevel': txn.get('closeLevel'),
+                        'profit': txn.get('profitAndLoss'),
+                        'broker': 'IG Markets'
+                    })
+                return trades
+            return []
+        except Exception as e:
+            logger.error(f"IG get_trades error: {e}")
+            return []
 
 
 class XMConnection(MT5Connection):
@@ -4021,104 +4211,166 @@ def delete_broker_credentials(credential_id):
 @app.route('/api/broker/test-connection', methods=['POST'])
 @require_session
 def test_broker_connection():
-    """Test broker connection and save credentials"""
+    """Test broker connection and save credentials (supports MT5 and IG Markets)"""
     try:
         user_id = request.user_id
         data = request.json
         broker = data.get('broker', '')
-        account = data.get('account_number', '')
-        password = data.get('password', '')
-        server = data.get('server', '')
         is_live = data.get('is_live', False)
         
-        # Validate required fields
-        if not all([broker, account, password, server]):
-            return jsonify({
-                'success': False,
-                'error': 'Missing required fields: broker, account_number, password, server'
-            }), 400
+        logger.info(f"🔌 Testing broker connection: {broker} | User: {user_id}")
         
-        # Log connection test
-        logger.info(f"🔌 Testing broker connection: {broker} | Account: {account} | User: {user_id}")
-        
-        # Fix server name for MT5 brokers - use configured MetaQuotes server
-        # All MT5-based brokers (MetaQuotes, XM, etc.) should use the configured server
-        if broker.lower() in ['metaquotes', 'xm', 'xm global', 'metatrader5', 'mt5']:
-            if not server or server != MT5_CONFIG['server']:
-                server = MT5_CONFIG['server']
-                logger.info(f"   Corrected server to: {server}")
-        
-        # Try to get actual balance from MT5 account
-        actual_balance = 10000.00  # Default fallback
-        try:
-            # Create a temporary MT5 connection with provided credentials
-            test_credentials = {
-                'account': int(account),
-                'password': password,
-                'server': server
-            }
-            temp_connection = MT5Connection(credentials=test_credentials)
+        # ==================== IG MARKETS ====================
+        if broker.lower() in ['ig', 'ig markets', 'ig.com']:
+            api_key = data.get('api_key')
+            ig_username = data.get('username')
+            ig_password = data.get('password')
+            account_id = data.get('account_id')
             
-            if temp_connection.connect():
-                # Successfully connected - get actual account info
-                account_info = temp_connection.get_account_info()
-                if account_info and 'balance' in account_info:
-                    actual_balance = account_info['balance']
-                    logger.info(f"✅ Retrieved actual balance from MT5: ${actual_balance}")
-                temp_connection.disconnect()
-            else:
-                logger.warning(f"⚠️  Could not connect to MT5 to retrieve actual balance - using default")
-        except Exception as e:
-            logger.warning(f"⚠️  Error retrieving actual balance: {e} - using default balance")
-        
-        # Save credentials to database (persist the connection)
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if credential already exists for this user, broker, and account
-        cursor.execute('''
-            SELECT credential_id FROM broker_credentials
-            WHERE user_id = ? AND broker_name = ? AND account_number = ?
-        ''', (user_id, broker, account))
-        
-        existing = cursor.fetchone()
-        
-        if existing:
-            # Update existing credential instead of creating duplicate
-            credential_id = existing[0]
-            cursor.execute('''
-                UPDATE broker_credentials
-                SET password = ?, server = ?, is_live = ?, is_active = 1, updated_at = ?
-                WHERE credential_id = ?
-            ''', (password, server, int(is_live), datetime.now().isoformat(), credential_id))
-            logger.info(f"ℹ️ Updated existing broker credential for user {user_id}: {broker} | Account: {account}")
-        else:
-            # Create new credential only if it doesn't exist
+            if not all([api_key, ig_username, ig_password, account_id]):
+                return jsonify({
+                    'success': False,
+                    'error': 'Missing IG Markets fields: api_key, username, password, account_id'
+                }), 400
+            
+            # Test IG connection
+            ig_credentials = {
+                'api_key': api_key,
+                'username': ig_username,
+                'password': ig_password,
+                'account_id': account_id
+            }
+            
+            ig_conn = IGConnection(credentials=ig_credentials)
+            if not ig_conn.connect():
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to authenticate with IG Markets. Check API key and credentials.'
+                }), 401
+            
+            # Get account info
+            account_info = ig_conn.get_account_info()
+            ig_conn.disconnect()
+            
+            if 'error' in account_info:
+                return jsonify({
+                    'success': False,
+                    'error': f"Failed to retrieve IG account info: {account_info['error']}"
+                }), 400
+            
+            # Save IG credentials
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
             credential_id = str(uuid.uuid4())
             cursor.execute('''
                 INSERT INTO broker_credentials 
-                (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-            ''', (credential_id, user_id, broker, account, password, server, int(is_live), datetime.now().isoformat(), datetime.now().isoformat()))
-            logger.info(f"✅ Created new broker credential for user {user_id}: {broker} | Account: {account}")
+                (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, api_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ''', (credential_id, user_id, 'IG Markets', account_id, ig_password, 'REST-API', int(is_live), api_key, datetime.now().isoformat(), datetime.now().isoformat()))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"✅ IG Markets credentials saved for user {user_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully connected to IG Markets account {account_id}',
+                'credential_id': credential_id,
+                'broker': 'IG Markets',
+                'account_number': account_id,
+                'accountName': account_info.get('accountName', 'IG Account'),
+                'currency': account_info.get('currency', 'USD'),
+                'is_live': is_live,
+                'status': 'CONNECTED',
+                'timestamp': datetime.now().isoformat()
+            }), 200
         
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"✅ Credentials saved for user {user_id} with credential_id {credential_id}")
-        
-        # Return successful response with ACTUAL balance from MT5
-        return jsonify({
-            'success': True,
-            'message': f'Successfully connected to {broker} account {account}',
-            'credential_id': credential_id,
-            'broker': broker,
-            'account_number': account,
-            'balance': actual_balance,
-            'is_live': is_live,
-            'status': 'CONNECTED',
-            'timestamp': datetime.now().isoformat()
-        }), 200
+        # ==================== MT5 BROKERS ====================
+        else:
+            account = data.get('account_number', '')
+            password = data.get('password', '')
+            server = data.get('server', '')
+            
+            # Validate required fields
+            if not all([broker, account, password, server]):
+                return jsonify({
+                    'success': False,
+                    'error': 'Missing required fields for MT5: broker, account_number, password, server'
+                }), 400
+            
+            # Fix server name for MT5 brokers
+            if broker.lower() in ['metaquotes', 'xm', 'xm global', 'metatrader5', 'mt5']:
+                if not server or server != MT5_CONFIG['server']:
+                    server = MT5_CONFIG['server']
+                    logger.info(f"   Corrected server to: {server}")
+            
+            # Try to get actual balance from MT5 account
+            actual_balance = 10000.00  # Default fallback
+            try:
+                test_credentials = {
+                    'account': int(account),
+                    'password': password,
+                    'server': server
+                }
+                temp_connection = MT5Connection(credentials=test_credentials)
+                
+                if temp_connection.connect():
+                    account_info = temp_connection.get_account_info()
+                    if account_info and 'balance' in account_info:
+                        actual_balance = account_info['balance']
+                        logger.info(f"✅ Retrieved actual balance from MT5: ${actual_balance}")
+                    temp_connection.disconnect()
+                else:
+                    logger.warning(f"⚠️  Could not connect to MT5 - using default balance")
+            except Exception as e:
+                logger.warning(f"⚠️  Error retrieving balance: {e}")
+            
+            # Save MT5 credentials
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT credential_id FROM broker_credentials
+                WHERE user_id = ? AND broker_name = ? AND account_number = ?
+            ''', (user_id, broker, account))
+            
+            existing = cursor.fetchone()
+            
+            if existing:
+                credential_id = existing[0]
+                cursor.execute('''
+                    UPDATE broker_credentials
+                    SET password = ?, server = ?, is_live = ?, is_active = 1, updated_at = ?
+                    WHERE credential_id = ?
+                ''', (password, server, int(is_live), datetime.now().isoformat(), credential_id))
+                logger.info(f"ℹ️  Updated broker credential: {broker} | Account: {account}")
+            else:
+                credential_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO broker_credentials 
+                    (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ''', (credential_id, user_id, broker, account, password, server, int(is_live), datetime.now().isoformat(), datetime.now().isoformat()))
+                logger.info(f"✅ Created broker credential: {broker} | Account: {account}")
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"✅ Credentials saved for user {user_id}")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully connected to {broker} account {account}',
+                'credential_id': credential_id,
+                'broker': broker,
+                'account_number': account,
+                'balance': actual_balance,
+                'is_live': is_live,
+                'status': 'CONNECTED',
+                'timestamp': datetime.now().isoformat()
+            }), 200
         
     except Exception as e:
         logger.error(f"❌ Connection test failed: {e}")
