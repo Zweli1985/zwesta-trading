@@ -1067,6 +1067,18 @@ class MT5Connection(BrokerConnection):
             if not self.connected:
                 return {'success': False, 'error': 'Not connected'}
 
+            # Enforce minimum volume for specific symbols
+            min_volumes = {
+                'OILK': 1.0,
+                'XAUUSD': 0.01,
+                'XAGUSD': 0.1,
+                # Add more as needed
+            }
+            min_volume = min_volumes.get(symbol, 0.01)
+            if volume < min_volume:
+                logger.info(f"Adjusting volume for {symbol}: requested={volume}, min={min_volume}")
+                volume = min_volume
+
             # First, select the symbol to ensure it's available in MT5
             if not self.mt5.symbol_select(symbol, True):
                 return {'success': False, 'error': f'Symbol {symbol} not found in MT5'}
@@ -1114,6 +1126,26 @@ class MT5Connection(BrokerConnection):
             if result.retcode != self.mt5.TRADE_RETCODE_DONE:
                 logger.warning(f"MT5 order failed: symbol={symbol}, type={order_type}, retcode={result.retcode}, comment={result.comment}")
                 return {'success': False, 'error': f'MT5 error: {result.comment}'}
+
+            # Insert trade record into trades table
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                trade_id = str(uuid.uuid4())
+                bot_id = kwargs.get('bot_id', 'unknown')
+                user_id = kwargs.get('user_id', 'unknown')
+                now = datetime.now().isoformat()
+                cursor.execute('''
+                    INSERT INTO trades (trade_id, bot_id, user_id, symbol, order_type, volume, price, profit, commission, swap, ticket, time_open, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    trade_id, bot_id, user_id, symbol, order_type, volume, price, 0, 0, 0, result.order, now, 'open', now, now
+                ))
+                conn.commit()
+                conn.close()
+                logger.info(f"✅ Trade record inserted for {symbol} {order_type} vol={volume} bot={bot_id}")
+            except Exception as e:
+                logger.error(f"❌ Error inserting trade record: {e}")
 
             return {
                 'success': True,
@@ -3444,6 +3476,31 @@ commodity_market_data = {
 # Store active bots configuration
 active_bots = {}
 
+def cleanup_old_bots(max_bots=10):
+    """Remove old bots from database and memory, keep only the latest max_bots"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Get bot_ids ordered by created_at descending
+        cursor.execute('''
+            SELECT bot_id FROM user_bots ORDER BY created_at DESC
+        ''')
+        bot_ids = [row[0] for row in cursor.fetchall()]
+        # Keep only the latest max_bots
+        keep_ids = set(bot_ids[:max_bots])
+        remove_ids = set(bot_ids[max_bots:])
+        if remove_ids:
+            cursor.executemany('DELETE FROM user_bots WHERE bot_id = ?', [(bid,) for bid in remove_ids])
+            conn.commit()
+        conn.close()
+        # Remove from memory
+        for bot_id in list(active_bots.keys()):
+            if bot_id not in keep_ids:
+                del active_bots[bot_id]
+        logger.info(f"✅ Cleaned up old bots, kept {len(keep_ids)} bots")
+    except Exception as e:
+        logger.error(f"❌ Error cleaning up old bots: {e}")
+
 # Track running bots and their threads (NEW)
 running_bots = {}  # {bot_id: True/False}
 bot_threads = {}   # {bot_id: thread_object}
@@ -4013,53 +4070,79 @@ def distribute_trade_commissions(bot_id: str, user_id: str, profit_amount: float
         if profit_amount <= 0:
             return  # Only commission on profits
         
-        COMMISSION_RATE = 0.05  # 5% commission rate
-        commission_amount = profit_amount * COMMISSION_RATE
-        
+        DEVELOPER_ID = 'developer'  # Replace with actual developer user_id if needed
+        DEVELOPER_DIRECT_RATE = 0.25
+        DEVELOPER_REFERRAL_RATE = 0.20
+        RECRUITER_RATE = 0.05
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # ✅ CORRECTED LOGIC:
-        # The bot_owner (user_id) should NOT earn commission from their own trades
-        # The bot_owner's REFERRER (upline) earns commission from this user's bot profit
-        
+
         # Check if bot owner has a referrer (upline)
         cursor.execute('''
             SELECT referrer_id FROM referrals
             WHERE referred_user_id = ? AND status = 'active'
         ''', (user_id,))
-        
         referrer_row = cursor.fetchone()
         has_referrer = referrer_row is not None
         referrer_id = referrer_row[0] if has_referrer else None
-        
+
         if has_referrer:
-            # Referrer earns commission from this user's bot profit
-            commission_id = str(uuid.uuid4())
+            # 20% to developer
+            developer_commission = profit_amount * DEVELOPER_REFERRAL_RATE
+            developer_commission_id = str(uuid.uuid4())
             cursor.execute('''
                 INSERT INTO commissions
                 (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                commission_id,
-                referrer_id,           # Referrer (upline) earns commission
-                user_id,               # From this referred user's bot
+                developer_commission_id,
+                DEVELOPER_ID,
+                user_id,
                 bot_id,
                 profit_amount,
-                COMMISSION_RATE,
-                commission_amount,
+                DEVELOPER_REFERRAL_RATE,
+                developer_commission,
                 datetime.now().isoformat()
             ))
-            
-            logger.info(f"💰 Commission earned by referrer {referrer_id}:")
-            logger.info(f"   From downliner {user_id}'s bot {bot_id}")
-            logger.info(f"   Amount: ${commission_amount:.2f} (5% of ${profit_amount:.2f})")
+            # 5% to recruiter
+            recruiter_commission = profit_amount * RECRUITER_RATE
+            recruiter_commission_id = str(uuid.uuid4())
+            cursor.execute('''
+                INSERT INTO commissions
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                recruiter_commission_id,
+                referrer_id,
+                user_id,
+                bot_id,
+                profit_amount,
+                RECRUITER_RATE,
+                recruiter_commission,
+                datetime.now().isoformat()
+            ))
+            logger.info(f"💰 Commission split: Developer {DEVELOPER_ID} gets ${developer_commission:.2f} (20%), Recruiter {referrer_id} gets ${recruiter_commission:.2f} (5%) from ${profit_amount:.2f}")
         else:
-            # No referrer - this user has no upline earning from them
-            # Only their own downliners would pay them commission later
-            logger.info(f"ℹ️  No commission for bot {bot_id} (no upline referrer)")
-            logger.info(f"   [User {user_id} will earn commission from their own downliners' trades]")
-        
+            # 25% to developer
+            developer_commission = profit_amount * DEVELOPER_DIRECT_RATE
+            developer_commission_id = str(uuid.uuid4())
+            cursor.execute('''
+                INSERT INTO commissions
+                (commission_id, earner_id, client_id, bot_id, profit_amount, commission_rate, commission_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                developer_commission_id,
+                DEVELOPER_ID,
+                user_id,
+                bot_id,
+                profit_amount,
+                DEVELOPER_DIRECT_RATE,
+                developer_commission,
+                datetime.now().isoformat()
+            ))
+            logger.info(f"💰 Commission: Developer {DEVELOPER_ID} gets ${developer_commission:.2f} (25%) from ${profit_amount:.2f} [Direct signup]")
+
         conn.commit()
         conn.close()
         
@@ -5505,32 +5588,30 @@ def configure_intelligent_withdrawal(bot_id):
         time_between_withdrawals_hours = data.get('time_between_withdrawals_hours', 24)
         
         # Validate parameters
-        errors = []
-        if min_profit < 10:
-            errors.append('min_profit must be >= $10')
-        if max_profit < min_profit:
-            errors.append('max_profit must be >= min_profit')
-        if volatility_threshold < 0 or volatility_threshold > 0.1:
-            errors.append('volatility_threshold must be 0-0.1 (0%-10%)')
-        if win_rate_min < 40 or win_rate_min > 100:
-            errors.append('win_rate_min must be 40-100%')
-        if trend_strength_min < 0 or trend_strength_min > 1:
-            errors.append('trend_strength_min must be 0-1')
-        if time_between_withdrawals_hours < 1 or time_between_withdrawals_hours > 720:
-            errors.append('time_between_withdrawals_hours must be 1-720 (1 hour to 30 days)')
-        
-        if errors:
-            return jsonify({'success': False, 'error': '; '.join(errors)}), 400
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        setting_id = str(uuid.uuid4())
-        created_at = datetime.now().isoformat()
-        
-        cursor.execute('''
-            INSERT OR REPLACE INTO auto_withdrawal_settings
-            (setting_id, bot_id, user_id, withdrawal_mode, min_profit, max_profit,
+        bots_list = []
+        # Only include ENABLED (running) bots
+        for bot_id, bot in active_bots.items():
+            is_marked_running = running_bots.get(bot_id, False)
+            is_enabled = bot.get('enabled', True)
+            if not is_marked_running and not is_enabled:
+                logger.debug(f"Skipping bot {bot_id}: marked_running={is_marked_running}, enabled={is_enabled}")
+                continue
+            # ...existing code...
+            enhanced_bot = {
+                'botId': bot.get('botId', 'unknown'),
+                'symbol': symbol,
+                'strategy': bot.get('strategy', 'Unknown'),
+                # ...existing code...
+            }
+            bots_list.append(enhanced_bot)
+        # Sort bots by creation time descending and show only 5 most recent
+        bots_list = sorted(bots_list, key=lambda b: b.get('lastTradeTime', ''), reverse=True)[:5]
+        return jsonify({
+            'success': True,
+            'activeBots': len([b for b in bots_list if b.get('enabled', True)]),
+            'bots': bots_list,
+            'timestamp': datetime.now().isoformat(),
+        }), 200
              volatility_threshold, win_rate_min, trend_strength_min, 
              time_between_withdrawals_hours, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -6204,13 +6285,16 @@ def get_withdrawal_history(user_id):
         withdrawals = [dict(row) for row in cursor.fetchall()]
         conn.close()
         
-        return jsonify({
+        result = {
             'success': True,
             'withdrawals': withdrawals
-        }), 200
+        }
+        print("\n=== Withdrawal History ===\n", result)
+        return jsonify(result), 200
     
     except Exception as e:
         logger.error(f"Error getting withdrawal history: {e}")
+        print("\n=== Withdrawal History Error ===\n", str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -6347,37 +6431,43 @@ def auto_withdrawal_monitor():
             trades_count = bot_config.get('tradesCount', 0)
             
             # Need at least 5 trades to make intelligent decision
-            if trades_count < 5:
-                return False, f"Need at least 5 trades (have {trades_count})"
-            
-            win_rate_min = settings[6]  # From DB
-            trend_strength_min = settings[7]  # From DB
-            
-            # Check win rate threshold
-            if win_rate < win_rate_min:
-                return False, f"Win rate {win_rate}% below minimum {win_rate_min}%"
-            
-            # Estimate volatility from recent trades
-            volatility_threshold = settings[5]  # From DB
-            estimated_volatility = 0.015  # Default 1.5% volatility
-            
-            if estimated_volatility > volatility_threshold:
-                return False, f"Volatility {estimated_volatility:.2%} exceeds threshold"
-            
-            # Check trend strength (simulated from consecutive wins)
-            consecutive_wins = bot_config.get('consecutiveWins', 0)
-            trend_strength = min(consecutive_wins / 10.0, 1.0)  # Max 1.0
-            
-            if trend_strength < trend_strength_min:
-                return False, f"Trend strength {trend_strength:.2f} below minimum {trend_strength_min}"
-            
-            # Calculate intelligent withdrawal amount
-            max_profit = settings[3]  # max_profit from DB
-            
-            # Withdraw percentage based on profit level and trend strength
-            # Higher profit + stronger trend = withdraw more
-            withdraw_percentage = 0.5 + (trend_strength * 0.4)  # 50-90% of profit
-            withdrawal_amount = min(current_profit * withdraw_percentage, max_profit)
+                                        # Update trade stats
+                                        bot_config['totalTrades'] = bot_config.get('totalTrades', 0) + 1
+                                        if trade['profit'] > 0:
+                                            bot_config['winningTrades'] = bot_config.get('winningTrades', 0) + 1
+                                        else:
+                                            bot_config['losingTrades'] = bot_config.get('losingTrades', 0) + 1
+                                            bot_config['totalLosses'] = bot_config.get('totalLosses', 0) + abs(trade['profit'])
+                                        bot_config['totalProfit'] = bot_config.get('totalProfit', 0) + trade['profit']
+                                        # Update peak & drawdown
+                                        if bot_config['totalProfit'] > bot_config.get('peakProfit', 0):
+                                            bot_config['peakProfit'] = bot_config['totalProfit']
+                                        drawdown = bot_config.get('peakProfit', 0) - bot_config['totalProfit']
+                                        if drawdown > bot_config.get('maxDrawdown', 0):
+                                            bot_config['maxDrawdown'] = drawdown
+                                        # Track profit history
+                                        bot_config.setdefault('profitHistory', []).append({
+                                            'timestamp': trade['timestamp'],
+                                            'profit': round(bot_config['totalProfit'], 2),
+                                            'trades': bot_config['totalTrades'],
+                                        })
+                                        # Track trade history
+                                        bot_config.setdefault('tradeHistory', []).append(trade)
+                                        # Track daily profit
+                                        today = datetime.now().strftime('%Y-%m-%d')
+                                        bot_config.setdefault('dailyProfits', {})
+                                        if today not in bot_config['dailyProfits']:
+                                            bot_config['dailyProfits'][today] = 0
+                                        bot_config['dailyProfits'][today] += trade['profit']
+                                        # Distribution commissions
+                                        if trade['profit'] > 0:
+                                            try:
+                                                distribute_trade_commissions(bot_id, user_id, trade['profit'])
+                                            except Exception as e:
+                                                logger.error(f"Bot {bot_id}: Commission error: {e}")
+                                        logger.info(f"✅ Bot {bot_id}: Trade executed | {symbol} {order_type} | P&L: ${trade['profit']:.2f}")
+                                        trades_placed += 1
+                                        break
             
             return True, withdrawal_amount
         
@@ -7030,18 +7120,21 @@ def restore_from_backup():
         # DANGEROUS - require confirmation
         confirmation = data.get('confirm_restore')
         if not confirmation:
-            return jsonify({
-                'success': False,
-                'error': 'Confirmation required',
-                'next_step': 'Call again with confirm_restore=true to proceed',
-            }), 400
-        
-        # Perform restore
-        success = recovery_manager.restore_from_backup(backup_filename)
-        
-        if success:
-            logger.critical(f"🔴 DATABASE RESTORED: {backup_filename} by admin {user_id}")
-            return jsonify({
+            result = {
+                'success': True,
+                'bot_id': bot_id,
+                'current_setting': dict(settings) if settings else None,
+                'history': history,
+                'total_auto_withdrawals': len(history),
+                'total_amount_withdrawn': sum([float(h['withdrawal_amount']) for h in history])
+            }
+            print("\n=== Auto-Withdrawal Status ===\n", result)
+            return jsonify(result), 200
+    
+        except Exception as e:
+            logger.error(f"Error getting auto-withdrawal status: {e}")
+            print("\n=== Auto-Withdrawal Status Error ===\n", str(e))
+            return jsonify({'success': False, 'error': str(e)}), 500
                 'success': True,
                 'message': 'Database restored successfully',
                 'backup_restored': backup_filename,
