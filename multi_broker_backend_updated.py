@@ -970,7 +970,7 @@ class MT5Connection(BrokerConnection):
                     "price": tick.ask,
                     "comment": "ZTEST",  # Short comment within MT5's 31-char limit
                     "type_time": self.mt5.ORDER_TIME_GTC,
-                    "type_filling": self.mt5.ORDER_FILLING_IOC,
+                    "type_filling": self.mt5.ORDER_FILLING_FOK,
                 }
                 
                 test_result = self.mt5.order_send(test_request)
@@ -1086,7 +1086,7 @@ class MT5Connection(BrokerConnection):
                 "price": price,
                 "comment": (kwargs.get('comment', 'ZTrade')[:31] if kwargs.get('comment') else 'ZTrade'),  # Enforce 31-char limit
                 "type_time": self.mt5.ORDER_TIME_GTC,
-                "type_filling": self.mt5.ORDER_FILLING_IOC,
+                "type_filling": self.mt5.ORDER_FILLING_FOK,
             }
 
             if 'stopLoss' in kwargs:
@@ -1147,7 +1147,7 @@ class MT5Connection(BrokerConnection):
                 "position": int(position_id),
                 "comment": "ZCLOSE",  # Short comment for close (31-char MT5 limit)
                 "type_time": self.mt5.ORDER_TIME_GTC,
-                "type_filling": self.mt5.ORDER_FILLING_IOC,
+                "type_filling": self.mt5.ORDER_FILLING_FOK,
             }
 
             result = self.mt5.order_send(request_dict)
