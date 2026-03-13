@@ -941,7 +941,7 @@ class MT5Connection(BrokerConnection):
                     "volume": 0.01,  # Micro volume for test
                     "type": self.mt5.ORDER_TYPE_BUY,
                     "price": tick.ask,
-                    "comment": "MT5_READINESS_TEST",
+                    "comment": "ZTEST",  # Short comment within MT5's 31-char limit
                     "type_time": self.mt5.ORDER_TIME_GTC,
                     "type_filling": self.mt5.ORDER_FILLING_IOC,
                 }
@@ -1057,7 +1057,7 @@ class MT5Connection(BrokerConnection):
                 "volume": volume,
                 "type": self.mt5.ORDER_TYPE_BUY if order_type == 'BUY' else self.mt5.ORDER_TYPE_SELL,
                 "price": price,
-                "comment": kwargs.get('comment', 'Zwesta Trade'),
+                "comment": (kwargs.get('comment', 'ZTrade')[:31] if kwargs.get('comment') else 'ZTrade'),  # Enforce 31-char limit
                 "type_time": self.mt5.ORDER_TIME_GTC,
                 "type_filling": self.mt5.ORDER_FILLING_IOC,
             }
@@ -1118,7 +1118,7 @@ class MT5Connection(BrokerConnection):
                 "volume": pos.volume,
                 "type": self.mt5.ORDER_TYPE_SELL if pos.type == self.mt5.ORDER_TYPE_BUY else self.mt5.ORDER_TYPE_BUY,
                 "position": int(position_id),
-                "comment": "Zwesta Close",
+                "comment": "ZCLOSE",  # Short comment for close (31-char MT5 limit)
                 "type_time": self.mt5.ORDER_TIME_GTC,
                 "type_filling": self.mt5.ORDER_FILLING_IOC,
             }
@@ -4540,11 +4540,15 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                         
                         for index, attempt_symbol in enumerate(symbols_to_try):
                             try:
+                                # Create short comment - MT5 has 31 char limit
+                                # Use bot ID suffix instead of full bot_id
+                                bot_id_short = bot_id.split('_')[-1][:8]  # Last 8 chars of timestamp
+                                comment_short = f'ZBot{bot_id_short}'
                                 order_result = mt5_conn.place_order(
                                     symbol=attempt_symbol,
                                     order_type=order_type,
                                     volume=round(adjusted_volume, 2),
-                                    comment=f'Zwesta Bot {bot_id} - {strategy_name}'
+                                    comment=comment_short
                                 )
                                 
                                 if order_result.get('success', False):
