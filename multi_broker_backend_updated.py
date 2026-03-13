@@ -4216,50 +4216,62 @@ def create_bot():
         logger.info(f"✅ Created bot {bot_id} for user {user_id}")
         logger.info(f"   Broker: {broker_name} | Account: {account_number} | Mode: {mode}")
         
-        # ✅ AUTO-START BOT IMMEDIATELY (so it appears on dashboard as running)
-        # Users expect new bots to trade right away, not require manual "Start" action
-        logger.info(f"Bot {bot_id}: Auto-starting bot immediately after creation...")
-        
-        # Retrieve MT5 credentials if LIVE mode
-        bot_credentials = None
-        if mode == 'live':
-            try:
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT password, server 
-                    FROM broker_credentials 
-                    WHERE credential_id = ? AND user_id = ?
-                ''', (credential_id, user_id))
-                cred_row = cursor.fetchone()
-                conn.close()
-                
-                if cred_row:
-                    bot_credentials = {
-                        'account_number': account_number,
-                        'password': cred_row['password'],
-                        'server': cred_row['server'],
-                        'is_live': True
-                    }
-            except Exception as e:
-                logger.warning(f"Could not fetch MT5 credentials for live bot: {e}")
-        
-        # Register bot as running immediately
+        # ✅ MARK BOT AS RUNNING IMMEDIATELY (so it appears on dashboard)
+        # Don't block the response - just mark it as running and return
+        # The background system will auto-start it via the running_bots flag
         running_bots[bot_id] = True
+        bot_stop_flags[bot_id] = False
         
-        # Launch background trading thread
-        if bot_id not in bot_threads or not bot_threads[bot_id].is_alive():
-            bot_stop_flags[bot_id] = False
-            bot_thread = threading.Thread(
-                target=continuous_bot_trading_loop,
-                args=(bot_id, user_id, bot_credentials),
-                daemon=True,
-                name=f"BotThread-{bot_id}"
-            )
-            bot_threads[bot_id] = bot_thread
-            bot_thread.start()
-            logger.info(f"✅ Bot {bot_id}: Background thread launched (auto-start on creation)")
+        # Launch thread asynchronously in background WITHOUT BLOCKING response
+        def _async_start_bot():
+            """Start bot in background without blocking the API response"""
+            try:
+                # Small delay to ensure bot is fully initialized in DB
+                time.sleep(0.5)
+                
+                # Retrieve MT5 credentials if LIVE mode
+                bot_credentials = None
+                if mode == 'live':
+                    try:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute('''
+                            SELECT password, server 
+                            FROM broker_credentials 
+                            WHERE credential_id = ? AND user_id = ?
+                        ''', (credential_id, user_id))
+                        cred_row = cursor.fetchone()
+                        conn.close()
+                        
+                        if cred_row:
+                            bot_credentials = {
+                                'account_number': account_number,
+                                'password': cred_row['password'],
+                                'server': cred_row['server'],
+                                'is_live': True
+                            }
+                    except Exception as e:
+                        logger.warning(f"Could not fetch MT5 credentials for live bot: {e}")
+                
+                # Launch background trading thread
+                if bot_id not in bot_threads or not bot_threads[bot_id].is_alive():
+                    bot_thread = threading.Thread(
+                        target=continuous_bot_trading_loop,
+                        args=(bot_id, user_id, bot_credentials),
+                        daemon=True,
+                        name=f"BotThread-{bot_id}"
+                    )
+                    bot_threads[bot_id] = bot_thread
+                    bot_thread.start()
+                    logger.info(f"🚀 Bot {bot_id}: Background thread launched (async start)")
+            except Exception as e:
+                logger.error(f"Error in async bot start: {e}")
         
+        # Start the bot in a background daemon thread (non-blocking)
+        startup_thread = threading.Thread(target=_async_start_bot, daemon=True)
+        startup_thread.start()
+        
+        # RETURN IMMEDIATELY - don't wait for bot to fully start
         return jsonify({
             'success': True,
             'botId': bot_id,
@@ -4269,8 +4281,8 @@ def create_bot():
             'broker': broker_name,
             'account_number': account_number,
             'mode': mode,
-            'message': f'Bot {bot_id} created and auto-started successfully',
-            'status': 'RUNNING'
+            'message': f'Bot {bot_id} created and starting...',
+            'status': 'STARTING'
         }), 201
     
     except Exception as e:
