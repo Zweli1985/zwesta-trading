@@ -25,11 +25,6 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
   late TextEditingController _serverController;
   late TextEditingController _accountController;
   late TextEditingController _passwordController;
-  // IG Markets specific
-  late TextEditingController _igApiKeyController;
-  late TextEditingController _igUsernameController;
-  late TextEditingController _igAccountIdController;
-  
   String _selectedBroker = 'XM';
   bool _showSuccess = false;
   bool _isTestingConnection = false;
@@ -48,10 +43,6 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
     'Exness',
     'Darwinex',
     'IC Markets',
-    'IG',
-    'FXM',
-    'AvaTrade',
-    'FP Markets',
     'Zulu Trade (SA)',
     'Ovex (SA)',
     'Prime XBT',
@@ -66,10 +57,6 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
     'Exness': 'Exness-MT5',
     'Darwinex': 'Darwinex MT5',
     'IC Markets': 'ICMarkets-MT5',
-    'IG': 'IG-Live',
-    'FXM': 'FXM-Live',
-    'AvaTrade': 'Ava-Real',
-    'FP Markets': 'FPMarkets-Live',
     'Zulu Trade (SA)': 'ZuluTrade ZA',
     'Ovex (SA)': 'Ovex SA',
     'Prime XBT': 'PrimeXBT-MT5',
@@ -83,10 +70,6 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
     _serverController = TextEditingController();
     _accountController = TextEditingController();
     _passwordController = TextEditingController();
-    // IG Markets controllers
-    _igApiKeyController = TextEditingController();
-    _igUsernameController = TextEditingController();
-    _igAccountIdController = TextEditingController();
     _loadSavedCredentials();
     _loadSavedAccounts();
   }
@@ -150,49 +133,23 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
   }
 
   void _testConnection() async {
-    // Check IG Markets fields
-    if (_selectedBroker == 'IG') {
-      if (_igApiKeyController.text.isEmpty || _igUsernameController.text.isEmpty || 
-          _igAccountIdController.text.isEmpty || _passwordController.text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill all IG Markets fields')),
-        );
-        return;
-      }
-    } else {
-      // Check MT5 fields
-      if (_accountController.text.isEmpty || _passwordController.text.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill account and password')),
-        );
-        return;
-      }
+    if (_accountController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill account and password')),
+      );
+      return;
     }
 
     setState(() => _isTestingConnection = true);
 
     try {
-      dynamic result;
-      
-      if (_selectedBroker == 'IG') {
-        // IG Markets connection
-        result = await BrokerConnectionService.testIGConnection(
-          apiKey: _igApiKeyController.text,
-          username: _igUsernameController.text,
-          password: _passwordController.text,
-          accountId: _igAccountIdController.text,
-          isLive: _isLiveMode,
-        );
-      } else {
-        // MT5 broker connection
-        result = await BrokerConnectionService.testConnection(
-          broker: _selectedBroker,
-          accountNumber: _accountController.text,
+      final result = await BrokerConnectionService.testConnection(
+        broker: _selectedBroker,
+        accountNumber: _accountController.text,
         password: _passwordController.text,
         server: _serverController.text,
         isLive: _isLiveMode,
       );
-      }
 
       if (!mounted) return;
 
@@ -200,16 +157,14 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
         // Backend returns: credential_id, broker, account_number, balance, status, timestamp
         final credentialId = result['credential_id'] as String?;
         final balance = (result['balance'] ?? 10000.0).toDouble();
-        final accountNum = _selectedBroker == 'IG' ? _igAccountIdController.text : _accountController.text;
-        final serverName = _selectedBroker == 'IG' ? 'REST-API' : _serverController.text;
         final isDemo = !(_passwordController.text.contains('live') || result['is_live'] == true);
         
         // Create BrokerAccount from backend response
         final account = BrokerAccount(
-          id: credentialId ?? '${_selectedBroker}_$accountNum',
+          id: credentialId ?? '${_selectedBroker}_${_accountController.text}',
           brokerName: _selectedBroker,
-          accountNumber: accountNum,
-          server: serverName,
+          accountNumber: _accountController.text,
+          server: _serverController.text,
           isDemo: isDemo,
           accountBalance: balance,
           leverage: 100,
@@ -236,7 +191,7 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
         if (credentialId != null) {
           await prefs.setString('credential_id', credentialId);
           await prefs.setString('broker_name', _selectedBroker);
-          await prefs.setString('account_number', accountNum);
+          await prefs.setString('account_number', _accountController.text);
         }
 
         if (mounted) {
@@ -301,14 +256,10 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
   }
 
   @override
-  @override
   void dispose() {
     _serverController.dispose();
     _accountController.dispose();
     _passwordController.dispose();
-    _igApiKeyController.dispose();
-    _igUsernameController.dispose();
-    _igAccountIdController.dispose();
     BrokerConnectionService.dispose();
     super.dispose();
   }
@@ -413,87 +364,32 @@ class _BrokerIntegrationScreenState extends State<BrokerIntegrationScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          // ============ IG Markets Credentials ============
-          if (_selectedBroker == 'IG') ...
-            [
-              Text(
-                'IG Markets API Key',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _igApiKeyController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'API Key',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.vpn_key),
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'IG Markets Username',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _igUsernameController,
-                decoration: InputDecoration(
-                  labelText: 'Username',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.person),
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'IG Markets Account ID',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _igAccountIdController,
-                decoration: InputDecoration(
-                  labelText: 'Account ID',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.credit_card),
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                ),
-              ),
-            ]
-          // ============ MT5 Credentials ============
-          else ...
-            [
-              Text(
-                'MT5 Server',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _serverController,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'Server',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.storage),
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'MT5 Account Number',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _accountController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
+          Text(
+            'MT5 Server',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _serverController,
+            readOnly: true,
+            decoration: InputDecoration(
+              labelText: 'Server',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.storage),
+              filled: true,
+              fillColor: Colors.grey[900],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'MT5 Account Number',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _accountController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
               labelText: 'Account Number (your MT5 account ID)',
               border: const OutlineInputBorder(),
               prefixIcon: const Icon(Icons.account_circle),
