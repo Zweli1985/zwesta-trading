@@ -5060,14 +5060,26 @@ def bot_status():
 
 @app.route('/api/bot/status-public', methods=['GET'])
 def bot_status_public():
-    """Get status of RUNNING bots only (public - no authentication required)"""
+    """Get status of RUNNING bots only (public - no authentication required)
+    
+    A bot is considered "running" if:
+    1. It's in running_bots AND marked as running (True)
+    2. OR it's in active_bots AND was just created (enabled=True and enabled field is explicitly set)
+    """
     try:
         bots_list = []
         
         # Only include ENABLED (running) bots
         for bot_id, bot in active_bots.items():
-            # SKIP stopped/disabled bots
-            if not bot.get('enabled', True) or not running_bots.get(bot_id, False):
+            # Include bot if:
+            # 1. It's explicitly marked as running in running_bots OR
+            # 2. It's enabled in active_bots (just created, background thread starting)
+            is_marked_running = running_bots.get(bot_id, False)
+            is_enabled = bot.get('enabled', True)
+            
+            # Skip only if BOTH conditions fail
+            if not is_marked_running and not is_enabled:
+                logger.debug(f"Skipping bot {bot_id}: marked_running={is_marked_running}, enabled={is_enabled}")
                 continue
             
             # Calculate runtime
@@ -5096,6 +5108,14 @@ def bot_status_public():
             symbols = bot.get('symbols', [])
             symbol = symbols[0] if symbols else 'EURUSD'
             
+            # Determine status based on whether thread is actively running
+            if is_marked_running:
+                status = 'Running'
+            elif is_enabled and not is_marked_running:
+                status = 'Starting'  # Just created, background thread starting
+            else:
+                status = 'Stopped'
+            
             enhanced_bot = {
                 'botId': bot.get('botId', 'unknown'),
                 'symbol': symbol,
@@ -5107,7 +5127,8 @@ def bot_status_public():
                 'roi': round(roi, 2),
                 'profitFactor': round(profit_factor, 2),
                 'avgProfitPerTrade': round(total_profit / max(bot.get('totalTrades', 1), 1), 2),
-                'status': 'Running',  # Only show running bots
+                'status': status,
+                'enabled': is_enabled,
                 'createdAt': created.isoformat(),
                 'lastTradeTime': bot.get('tradeHistory', [{}])[-1].get('time') if bot.get('tradeHistory') else bot.get('createdAt', datetime.now().isoformat()),
             }
@@ -5119,9 +5140,16 @@ def bot_status_public():
         return jsonify({
             'success': True,
             'activeBots': len(bots_list),
+            'runningBots': len([b for b in bots_list if b['status'] == 'Running']),
+            'startingBots': len([b for b in bots_list if b['status'] == 'Starting']),
             'bots': bots_list,
             'timestamp': datetime.now().isoformat(),
         }), 200
+    
+    except Exception as e:
+        logger.error(f"Error getting public bot status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
     
     except Exception as e:
         logger.error(f"Error getting public bot status: {e}")
