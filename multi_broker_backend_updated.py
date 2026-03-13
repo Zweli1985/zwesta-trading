@@ -288,6 +288,19 @@ import sys
 import atexit
 from system.backup_and_recovery import BackupManager, RecoveryManager
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    env_file = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_file):
+        load_dotenv(env_file)
+        print(f"✅ Loaded environment configuration from {env_file}")
+    else:
+        print(f"⚠️  No .env file found at {env_file} - using system environment variables")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+    print("   Falling back to system environment variables")
+
 # Configure UTF-8 encoding for Windows console logging
 if sys.platform == 'win32':
     # Enable UTF-8 support in Windows console
@@ -364,6 +377,29 @@ if ENVIRONMENT == 'LIVE':
     if MT5_CONFIG['account'] == 0 or not MT5_CONFIG['password']:
         logger.error("[ALERT] LIVE MODE: Missing MT5 credentials in environment variables!")
         logger.error("Set: MT5_ACCOUNT, MT5_PASSWORD, MT5_SERVER")
+
+# IG.com Broker Configuration
+IG_CONFIG = {
+    'api_key': os.getenv('IG_API_KEY', '9bbc3ef9ad291acec96dc409d80e50c4c805161a'),  # From screenshot
+    'username': os.getenv('IG_USERNAME', ''),
+    'password': os.getenv('IG_PASSWORD', ''),
+    'account_id': os.getenv('IG_ACCOUNT_ID', ''),
+    'demo_mode': os.getenv('IG_DEMO_MODE', 'true').lower() == 'true'
+}
+
+# IG.com LIVE Configuration (override with environment variables if needed)
+if ENVIRONMENT == 'LIVE':
+    IG_CONFIG = {
+        'api_key': os.getenv('IG_API_KEY', '9bbc3ef9ad291acec96dc409d80e50c4c805161a'),
+        'username': os.getenv('IG_USERNAME', ''),
+        'password': os.getenv('IG_PASSWORD', ''),
+        'account_id': os.getenv('IG_ACCOUNT_ID', ''),
+        'demo_mode': False
+    }
+    # Validate LIVE IG credentials
+    if not IG_CONFIG['username'] or not IG_CONFIG['password']:
+        logger.warning("[ALERT] LIVE MODE: IG API credentials may be missing in environment variables!")
+        logger.warning("Set: IG_USERNAME, IG_PASSWORD, IG_ACCOUNT_ID for full functionality")
 
 # Withdrawal Configuration
 WITHDRAWAL_CONFIG = {
@@ -1617,6 +1653,10 @@ demo_trades_storage = {}
 logger.info("Initializing with MT5 demo account")
 broker_manager.add_connection('Default MT5', BrokerType.METATRADER5, MT5_CONFIG)
 
+# Auto-add IG.com account with API credentials
+logger.info("Initializing with IG.com account")
+broker_manager.add_connection('IG Markets', BrokerType.IG, IG_CONFIG)
+
 # AUTO-CONNECT to MT5 on startup (so dashboard shows real balance)
 def auto_connect_mt5():
     """Auto-connect to MT5 on startup"""
@@ -1632,6 +1672,23 @@ def auto_connect_mt5():
                 return False
     except Exception as e:
         logger.warning(f"⚠️  Error auto-connecting to MT5: {e} - will use simulated trading")
+        return False
+
+def auto_connect_ig():
+    """Auto-connect to IG.com on startup"""
+    try:
+        connection = broker_manager.connections.get('IG Markets')
+        if connection:
+            logger.info("🔗 Attempting auto-connect to IG.com...")
+            if connection.connect():
+                logger.info("✅ Auto-connected to IG.com successfully using API key: 9bbc3ef9ad291acec96dc409d80e50c4c805161a")
+                return True
+            else:
+                logger.warning("⚠️  IG.com connection requires username and password for full authentication")
+                logger.info("   You can still trade via API after providing credentials")
+                return False
+    except Exception as e:
+        logger.warning(f"⚠️  Error auto-connecting to IG.com: {e}")
         return False
 
 # Note: Connection happens after Flask initialization in __main__
@@ -1653,6 +1710,145 @@ def transfer_funds_api():
     except Exception as e:
         logger.error(f"Error in transfer_funds_api: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== IG.COM API ENDPOINTS ====================
+
+@app.route('/api/ig/connect', methods=['POST'])
+def ig_connect():
+    """Connect to IG.com Markets API"""
+    try:
+        data = request.json or {}
+        
+        # Update credentials if provided
+        if data.get('username'):
+            IG_CONFIG['username'] = data.get('username')
+        if data.get('password'):
+            IG_CONFIG['password'] = data.get('password')
+        if data.get('api_key'):
+            IG_CONFIG['api_key'] = data.get('api_key')
+        
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection:
+            return jsonify({'success': False, 'error': 'IG Markets connection not initialized'}), 500
+        
+        if ig_connection.connect():
+            return jsonify({
+                'success': True,
+                'message': 'Connected to IG.com successfully',
+                'api_key': IG_CONFIG['api_key'],
+                'account_id': ig_connection.account_id
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to connect to IG.com. Check credentials and internet connection.',
+                'api_key': IG_CONFIG['api_key']
+            }), 401
+    except Exception as e:
+        logger.error(f"Error connecting to IG.com: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ig/account-info', methods=['GET'])
+def ig_account_info():
+    """Get IG.com account information"""
+    try:
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection or not ig_connection.connected:
+            return jsonify({'success': False, 'error': 'IG.com not connected'}), 401
+        
+        account_info = ig_connection.get_account_info()
+        return jsonify({
+            'success': True,
+            'account': account_info,
+            'api_key': IG_CONFIG['api_key']
+        })
+    except Exception as e:
+        logger.error(f"Error getting IG account info: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ig/positions', methods=['GET'])
+def ig_positions():
+    """Get IG.com open positions"""
+    try:
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection or not ig_connection.connected:
+            return jsonify({'success': False, 'error': 'IG.com not connected'}), 401
+        
+        positions = ig_connection.get_positions()
+        return jsonify({
+            'success': True,
+            'positions': positions
+        })
+    except Exception as e:
+        logger.error(f"Error getting IG positions: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ig/place-order', methods=['POST'])
+def ig_place_order():
+    """Place order on IG.com Markets"""
+    try:
+        data = request.json
+        epic = data.get('epic')
+        direction = data.get('direction')
+        size = float(data.get('size', 0))
+        
+        if not all([epic, direction, size > 0]):
+            return jsonify({'success': False, 'error': 'Missing parameters: epic, direction, size'}), 400
+        
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection or not ig_connection.connected:
+            return jsonify({'success': False, 'error': 'IG.com not connected'}), 401
+        
+        result = ig_connection.place_order(epic, direction, size)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error placing IG order: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ig/trades', methods=['GET'])
+def ig_trades():
+    """Get IG.com open trades"""
+    try:
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection or not ig_connection.connected:
+            return jsonify({'success': False, 'error': 'IG.com not connected'}), 401
+        
+        trades = ig_connection.get_trades()
+        return jsonify({
+            'success': True,
+            'trades': trades
+        })
+    except Exception as e:
+        logger.error(f"Error getting IG trades: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ig/close-position', methods=['POST'])
+def ig_close_position():
+    """Close a position on IG.com"""
+    try:
+        data = request.json
+        deal_id = data.get('deal_id')
+        epic = data.get('epic')
+        
+        if not deal_id or not epic:
+            return jsonify({'success': False, 'error': 'Missing parameters: deal_id, epic'}), 400
+        
+        ig_connection = broker_manager.connections.get('IG Markets')
+        if not ig_connection or not ig_connection.connected:
+            return jsonify({'success': False, 'error': 'IG.com not connected'}), 401
+        
+        result = ig_connection.close_position(deal_id, epic)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error closing IG position: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -7773,6 +7969,9 @@ if __name__ == '__main__':
     # AUTO-CONNECT to MT5 (so dashboard shows real account balance)
     # This will retry up to 3 times with increasing waits
     auto_connect_mt5()
+    
+    # AUTO-CONNECT to IG.com (using API key from screenshot: 9bbc3ef9ad291acec96dc409d80e50c4c805161a)
+    auto_connect_ig()
     
     # Initialize demo bots on startup
     logger.info("Initializing demo trading bots...")
