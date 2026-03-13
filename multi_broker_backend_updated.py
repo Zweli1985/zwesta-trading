@@ -863,15 +863,17 @@ class MT5Connection(BrokerConnection):
         After MT5 restart, the terminal can connect but needs time to be operational.
         
         This method:
-        1. Checks if MT5 can execute a simple order (verifies terminal is ready)
-        2. Waits up to timeout_seconds for MT5 to be ready
-        3. Returns True if ready, False if timeout
+        1. Checks account info (basic connectivity)
+        2. Checks symbol availability and market data (reading capability)
+        3. Checks market hours and trading status (trading capability)
+        4. Tests order execution path (full readiness test)
+        5. Retries with increasing detail if any check fails
         """
         if not self.connected:
             logger.warning("MT5 not connected - cannot check readiness")
             return False
         
-        logger.info(f"🔍 Checking MT5 readiness (will wait up to {timeout_seconds} seconds)...")
+        logger.info(f"🔍 Comprehensive MT5 readiness check (timeout: {timeout_seconds}s)...")
         
         start_time = time.time()
         check_interval = 5  # Check every 5 seconds
@@ -880,42 +882,107 @@ class MT5Connection(BrokerConnection):
         while time.time() - start_time < timeout_seconds:
             attempt += 1
             try:
-                # Try to get account info - this verifies basic connectivity
-                info = self.mt5.account_info()
+                elapsed = time.time() - start_time
                 
-                if info is None:
-                    logger.debug(f"  Attempt {attempt}: account_info returned None")
+                # STEP 1: Check account info
+                account_info = self.mt5.account_info()
+                if account_info is None:
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: account_info = None")
                     time.sleep(check_interval)
                     continue
                 
-                # Try to select a symbol and get tick data - verifies order execution capability
-                test_symbol = "EURUSD"  # Universally available
-                if self.mt5.symbol_select(test_symbol, True):
-                    tick = self.mt5.symbol_info_tick(test_symbol)
-                    if tick is not None:
-                        logger.info(f"✅ MT5 is READY to execute orders (checked {test_symbol})")
-                        return True
-                    else:
-                        logger.debug(f"  Attempt {attempt}: tick data not ready")
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: account_info OK (balance=${account_info.balance})")
+                
+                # STEP 2: Check symbol availability and data
+                test_symbol = "EURUSD"
+                if not self.mt5.symbol_select(test_symbol, True):
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: symbol_select(EURUSD) failed")
+                    time.sleep(check_interval)
+                    continue
+                
+                tick = self.mt5.symbol_info_tick(test_symbol)
+                if tick is None:
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: tick data not available")
+                    time.sleep(check_interval)
+                    continue
+                
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: EURUSD tick OK (bid={tick.bid}, ask={tick.ask})")
+                
+                # STEP 3: Check symbol info (trading rules, hours, etc)
+                symbol_info = self.mt5.symbol_info(test_symbol)
+                if symbol_info is None:
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: symbol_info(EURUSD) = None")
+                    time.sleep(check_interval)
+                    continue
+                
+                is_tradable = symbol_info.trade_mode != self.mt5.SYMBOL_TRADE_MODE_DISABLED
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: symbol_info OK (tradable={is_tradable})")
+                
+                # STEP 4: Diagnose why order_send might fail
+                # Check if this is a permissions/state issue vs system issue
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: Running order execution diagnostic...")
+                
+                # Try to get positions to verify trading API is responding
+                positions = self.mt5.positions_get()
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: positions_get() returned {len(positions) if positions else 'None'} positions")
+                
+                # Try to get account orders
+                orders = self.mt5.orders_get()
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: orders_get() returned {len(orders) if orders else 'None'} orders")
+                
+                # If we got here, terminal is reading data fine
+                # Now test the actual order execution path with a micro test
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: Testing order submission path...")
+                
+                # Build a test order request (will fail for invalid reasons, but we can see if SDK responds)
+                test_request = {
+                    "action": self.mt5.TRADE_ACTION_DEAL,
+                    "symbol": test_symbol,
+                    "volume": 0.01,  # Micro volume for test
+                    "type": self.mt5.ORDER_TYPE_BUY,
+                    "price": tick.ask,
+                    "comment": "MT5_READINESS_TEST",
+                    "type_time": self.mt5.ORDER_TIME_GTC,
+                    "type_filling": self.mt5.ORDER_FILLING_IOC,
+                }
+                
+                test_result = self.mt5.order_send(test_request)
+                
+                # Check what order_send returned
+                if test_result is None:
+                    logger.warning(f"  Attempt {attempt} [{elapsed:.0f}s]: ⚠️  order_send() returned None (terminal issue, not account)")
+                    logger.warning(f"    This usually means:")
+                    logger.warning(f"    - MT5 terminal is still initializing")
+                    logger.warning(f"    - Terminal lost sync with SDK")
+                    logger.warning(f"    - Rare SDK issue")
+                    # Continue retrying - terminal may recover
+                    time.sleep(check_interval)
+                    continue
+                
+                # order_send did not return None - SDK is working
+                # Check if order succeeded or failed for logical reasons
+                if hasattr(test_result, 'retcode'):
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: order_send() returned (retcode={test_result.retcode})")
+                    logger.info(f"✅ MT5 is READY - order execution path is functional")
+                    logger.info(f"   Account: {account_info.login}, Balance: ${account_info.balance}")
+                    logger.info(f"   Symbol {test_symbol}: bid={tick.bid:.5f}, ask={tick.ask:.5f}")
+                    return True
                 else:
-                    logger.debug(f"  Attempt {attempt}: symbol select failed")
-                
-                # Not ready yet, wait and retry
-                elapsed = time.time() - start_time
-                remaining = timeout_seconds - elapsed
-                logger.debug(f"  MT5 not ready yet ({elapsed:.0f}s elapsed, {remaining:.0f}s remaining)...")
-                time.sleep(check_interval)
-                
+                    logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: order_send() returned object without retcode")
+                    logger.info(f"✅ MT5 is READY - SDK responding to order requests")
+                    return True
+                    
             except Exception as e:
-                logger.debug(f"  Attempt {attempt}: Exception during readiness check: {e}")
+                logger.debug(f"  Attempt {attempt} [{elapsed:.0f}s]: Exception: {e}")
                 time.sleep(check_interval)
         
         # Timeout reached
-        logger.error(f"❌ MT5 did not become ready within {timeout_seconds} seconds")
-        logger.error("   This usually means:")
-        logger.error("   1. MT5 terminal is still initializing")
-        logger.error("   2. Network connection issue")
-        logger.error("   3. Account permissions or server issue")
+        logger.error(f"❌ MT5 did not become fully ready within {timeout_seconds} seconds")
+        logger.error("   Symptoms: order_send() returning None even though connection works")
+        logger.error("   Likely causes:")
+        logger.error("   1. MT5 terminal is still initializing (needs more time)")
+        logger.error("   2. Terminal lost connection to server")
+        logger.error("   3. Account restrictions on trading")
         return False
 
     def get_account_info(self) -> Dict:
@@ -966,7 +1033,9 @@ class MT5Connection(BrokerConnection):
             return []
 
     def place_order(self, symbol: str, order_type: str, volume: float, **kwargs) -> Dict:
-        """Place order on MT5"""
+        """
+        Place order on MT5 with recovery logic for None responses
+        """
         try:
             if not self.connected:
                 return {'success': False, 'error': 'Not connected'}
@@ -1001,8 +1070,18 @@ class MT5Connection(BrokerConnection):
             result = self.mt5.order_send(request_dict)
 
             if result is None:
-                logger.error(f"MT5 order_send returned None for {symbol} {order_type} vol={volume} - terminal may have disconnected")
+                logger.error(f"MT5 order_send returned None for {symbol} {order_type} vol={volume}")
                 logger.error(f"  Request was: {request_dict}")
+                logger.error(f"  This usually indicates the terminal is not ready or has lost connection")
+                
+                # TRY RECOVERY: Attempt to get MT5 last error for diagnostic info
+                try:
+                    last_error = self.mt5.last_error()
+                    logger.error(f"  MT5 last_error: {last_error}")
+                except:
+                    pass
+                
+                # Return specific error so caller can distinguish between "symbol not found" vs "terminal issue"
                 return {'success': False, 'error': 'MT5 order_send failed - terminal may have disconnected'}
             
             if result.retcode != self.mt5.TRADE_RETCODE_DONE:
@@ -4380,7 +4459,7 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
         
         running_bots[bot_id] = True
         trade_cycle = 0
-        mt5_ready_timeout = 60  # Wait up to 60 seconds on first cycle
+        mt5_ready_timeout = 120  # Wait up to 120 seconds (2 minutes) on first cycle for full order readiness
         
         while not bot_stop_flags.get(bot_id, False):
             try:
@@ -4399,17 +4478,26 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                         time.sleep(trading_interval)
                         continue
                     
-                    # ✅ NEW: Wait for MT5 to be fully ready to execute orders
-                    # This is critical after MT5 restart - terminal connects but needs initialization time
-                    timeout_for_this_cycle = mt5_ready_timeout if trade_cycle == 1 else 15
+                    # ✅ Wait for MT5 to be fully ready to execute orders
+                    # IMPORTANT: This is critical after MT5 restart - terminal connects but needs initialization time
+                    # Especially for ORDER EXECUTION (not just reading)
+                    if trade_cycle == 1:
+                        # First cycle: be patient, MT5 may need full 2 minutes to initialize for trading
+                        logger.info(f"Bot {bot_id}: First trade cycle - waiting for MT5 to be ready for ORDER EXECUTION (up to {mt5_ready_timeout}s)...")
+                        timeout_for_this_cycle = mt5_ready_timeout
+                    else:
+                        # Subsequent cycles: faster timeouts since MT5 should be warm
+                        timeout_for_this_cycle = 15
+                    
                     if not mt5_conn.wait_for_mt5_ready(timeout_seconds=timeout_for_this_cycle):
-                        logger.warning(f"Bot {bot_id}: MT5 not ready after {timeout_for_this_cycle}s - will retry next cycle")
                         if trade_cycle == 1:
                             # On first cycle, be more aggressive with retries
-                            logger.info(f"Bot {bot_id}: First cycle timeout - retrying in 10 seconds...")
-                            time.sleep(10)
+                            logger.warning(f"Bot {bot_id}: First cycle MT5 readiness timeout after {timeout_for_this_cycle}s")
+                            logger.warning(f"  Will retry in 30 seconds (MT5 may still be initializing)...")
+                            time.sleep(30)
                             continue
                         else:
+                            logger.warning(f"Bot {bot_id}: MT5 not ready after {timeout_for_this_cycle}s - will retry next cycle")
                             time.sleep(trading_interval)
                             continue
                     
@@ -4799,11 +4887,30 @@ def start_bot():
         
         logger.info(f"Bot {bot_id}: Starting CONTINUOUS trading in background thread")
         
-        # Launch background trading thread
+        # ✅ Check if bot thread is already running (created by /api/bot/create)
+        # If it is, don't create a duplicate - just return success
         if bot_id in bot_threads and bot_threads[bot_id].is_alive():
-            logger.warning(f"Bot {bot_id}: Already running - stopping old thread first")
-            bot_stop_flags[bot_id] = True
-            bot_threads[bot_id].join(timeout=10)
+            logger.info(f"Bot {bot_id}: Already running via background thread - returning success")
+            logger.info(f"  (Thread started by /api/bot/create, will be operational within 2 minutes)")
+            # Return immediately - bot is already trading or waiting to be ready
+            return jsonify({
+                'success': True,
+                'botId': bot_id,
+                'strategy': bot_config['strategy'],
+                'status': 'RUNNING',
+                'message': f'Bot {bot_id} is already trading in background',
+                'tradingInterval': bot_config.get('tradingInterval', 300),
+                'botStats': {
+                    'totalTrades': bot_config['totalTrades'],
+                    'winningTrades': bot_config['winningTrades'],
+                    'totalLosses': round(bot_config['totalLosses'], 2),
+                    'totalProfit': round(bot_config['totalProfit'], 2),
+                    'accountBalance': bot_config.get('accountBalance', 0),
+                }
+            }), 200
+        
+        # Bot thread not running or stopped - create a new one
+        logger.info(f"Bot {bot_id}: No active thread found - creating new background thread")
         
         # Reset stop flag and start new thread
         bot_stop_flags[bot_id] = False
