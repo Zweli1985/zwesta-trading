@@ -4683,59 +4683,6 @@ def start_bot():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-
-
-@app.route('/api/bot/stop', methods=['POST'])
-@require_session
-def stop_bot():
-    """Stop continuous trading for a bot"""
-    try:
-        data = request.json or {}
-        bot_id = data.get('botId')
-        user_id = request.user_id
-        
-        if not bot_id:
-            return jsonify({'success': False, 'error': 'botId required'}), 400
-        
-        if bot_id not in active_bots:
-            return jsonify({'success': False, 'error': f'Bot {bot_id} not found'}), 404
-        
-        # Verify bot belongs to user
-        bot = active_bots[bot_id]
-        if bot.get('user_id') != user_id:
-            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
-        
-        # Check if bot is running
-        if bot_id not in running_bots or not running_bots[bot_id]:
-            return jsonify({'success': False, 'error': f'Bot {bot_id} is not running'}), 400
-        
-        # Set stop flag
-        bot_stop_flags[bot_id] = True
-        logger.info(f"🛑 Bot {bot_id}: Stop requested by user {user_id}")
-        
-        # Wait for thread to finish (max 30 seconds)
-        if bot_id in bot_threads and bot_threads[bot_id].is_alive():
-            logger.info(f"Bot {bot_id}: Waiting for background thread to stop...")
-            bot_threads[bot_id].join(timeout=30)
-        
-        return jsonify({
-            'success': True,
-            'botId': bot_id,
-            'status': 'STOPPED',
-            'message': f'Bot {bot_id} trading stopped',
-            'finalStats': {
-                'totalTrades': bot['totalTrades'],
-                'winningTrades': bot['winningTrades'],
-                'totalProfit': round(bot['totalProfit'], 2),
-                'accountBalance': bot.get('accountBalance', 0),
-            }
-        }), 200
-    
-    except Exception as e:
-        logger.error(f"Error stopping bot: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
 @app.route('/api/market/commodities', methods=['GET'])
 def get_commodity_market_data():
     """Get market sentiment and price data for all trading commodities (with live prices from MT5)"""
@@ -4928,10 +4875,18 @@ def stop_bot(bot_id):
         if not db_bot or db_bot['user_id'] != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
-        # Only disable, don't delete
-        bot_config['enabled'] = False
+        # Stop continuous trading thread if running
+        if bot_id in bot_threads and bot_threads[bot_id].is_alive():
+            logger.info(f"🛑 Bot {bot_id}: Stopping background trading thread...")
+            bot_stop_flags[bot_id] = True
+            bot_threads[bot_id].join(timeout=30)
+            logger.info(f"✅ Bot {bot_id}: Background thread stopped")
         
-        logger.info(f"\u23f9\ufe0f Bot {bot_id} stopped (still in system, can be restarted)")
+        # Disable bot in config
+        bot_config['enabled'] = False
+        running_bots[bot_id] = False
+        
+        logger.info(f"⏸️ Bot {bot_id} stopped (still in system, can be restarted)")
         logger.info(f"   Total Trades: {bot_config.get('totalTrades', 0)}")
         logger.info(f"   Total Profit: ${bot_config.get('totalProfit', 0):.2f}")
         
