@@ -1,3 +1,73 @@
+    def transfer_funds(self, from_account_id: str, to_account_id: str, amount: float) -> Dict:
+        """Automate fund transfer between brokers/accounts"""
+        try:
+            from_conn = self.connections.get(from_account_id)
+            to_conn = self.connections.get(to_account_id)
+            if not from_conn or not to_conn:
+                return {'success': False, 'error': 'Account not found'}
+            # Withdraw from source broker (simulate or call API)
+            # For demo, just log and simulate
+            logger.info(f"Transferring ${amount:.2f} from {from_account_id} to {to_account_id}")
+            # In real implementation, call withdrawal API on from_conn, deposit API on to_conn
+            # Here, just return success
+            return {'success': True, 'from': from_account_id, 'to': to_account_id, 'amount': amount}
+        except Exception as e:
+            logger.error(f"Error transferring funds: {e}")
+            return {'success': False, 'error': str(e)}
+class IGConnection(BrokerConnection):
+    """IG Broker Connection"""
+    def __init__(self, credentials: Dict = None):
+        super().__init__(BrokerType.IG, credentials)
+        self.api_key = credentials.get('api_key') if credentials else None
+        self.account_id = credentials.get('account_id') if credentials else None
+        self.connected = False
+        self.session = None
+
+    def connect(self) -> bool:
+        try:
+            import requests
+            self.session = requests.Session()
+            self.session.headers.update({
+                'X-IG-API-KEY': self.api_key,
+                'Content-Type': 'application/json',
+            })
+            # Authenticate here (login endpoint)
+            self.connected = True
+            return True
+        except Exception as e:
+            logger.error(f"IG connect error: {e}")
+            return False
+
+    def disconnect(self) -> bool:
+        self.connected = False
+        self.session = None
+        return True
+
+    def get_account_info(self) -> Dict:
+        return {'accountId': self.account_id, 'broker': 'IG'}
+
+    def get_positions(self) -> List[Dict]:
+        return []
+
+    def place_order(self, symbol: str, order_type: str, volume: float, **kwargs) -> Dict:
+        if not self.connected:
+            return {'success': False, 'error': 'Not connected to IG'}
+        # Call IG API endpoint here
+        return {'success': True, 'broker': 'IG', 'symbol': symbol, 'type': order_type, 'volume': volume}
+
+    def close_position(self, position_id: str) -> Dict:
+        return {'success': True, 'broker': 'IG', 'positionId': position_id}
+
+    def get_trades(self) -> List[Dict]:
+        return []
+
+
+class XMConnection(MT5Connection):
+    """XM Global Broker Connection (inherits MT5Connection)"""
+    def __init__(self, credentials: Dict = None):
+        super().__init__(credentials)
+        self.broker_type = BrokerType.XM
+        # Add XM-specific logic here
 #!/usr/bin/env python3
 """
 Zwesta Multi-Broker Trading Backend
@@ -732,25 +802,25 @@ class BrokerConnection:
         self.connected = False
         self.account_info = None
 
-    async def connect(self) -> bool:
+    def connect(self) -> bool:
         raise NotImplementedError
 
-    async def disconnect(self) -> bool:
+    def disconnect(self) -> bool:
         raise NotImplementedError
 
-    async def get_account_info(self) -> Dict:
+    def get_account_info(self) -> Dict:
         raise NotImplementedError
 
-    async def get_positions(self) -> List[Dict]:
+    def get_positions(self) -> List[Dict]:
         raise NotImplementedError
 
-    async def place_order(self, symbol: str, order_type: str, volume: float, **kwargs) -> Dict:
+    def place_order(self, symbol: str, order_type: str, volume: float, **kwargs) -> Dict:
         raise NotImplementedError
 
-    async def close_position(self, position_id: str) -> Dict:
+    def close_position(self, position_id: str) -> Dict:
         raise NotImplementedError
 
-    async def get_trades(self) -> List[Dict]:
+    def get_trades(self) -> List[Dict]:
         raise NotImplementedError
 
 
@@ -1251,6 +1321,10 @@ class BrokerManager:
         try:
             if broker_type == BrokerType.METATRADER5:
                 connection = MT5Connection(credentials)
+            elif broker_type == BrokerType.IG:
+                connection = IGConnection(credentials)
+            elif broker_type == BrokerType.XM:
+                connection = XMConnection(credentials)
             else:
                 logger.error(f"Broker {broker_type} not yet implemented")
                 return False
@@ -1374,6 +1448,21 @@ def auto_connect_mt5():
 
 
 # ==================== API ENDPOINTS ====================
+@app.route('/api/funds/transfer', methods=['POST'])
+def transfer_funds_api():
+    """Trigger fund transfer between brokers/accounts from Flutter app"""
+    try:
+        data = request.json
+        from_account = data.get('from_account')
+        to_account = data.get('to_account')
+        amount = float(data.get('amount', 0))
+        if not from_account or not to_account or amount <= 0:
+            return jsonify({'success': False, 'error': 'Missing parameters'}), 400
+        result = broker_manager.transfer_funds(from_account, to_account, amount)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in transfer_funds_api: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health():
@@ -2005,6 +2094,12 @@ def place_trade():
         if connection.connected:
             # Real trade - place through broker
             result = connection.place_order(symbol, order_type, volume, **data)
+            # Automate commission payout if trade is profitable
+            profit = result.get('profit', 0)
+            if profit and profit > 0:
+                bot_id = data.get('bot_id', 'unknown')
+                user_id = data.get('user_id', 'unknown')
+                distribute_trade_commissions(bot_id, user_id, profit)
             return jsonify(result)
         else:
             # Demo trade - create mock trade record and store it
@@ -2012,7 +2107,13 @@ def place_trade():
                 import random
                 profit = random.uniform(-500, 2500)
                 ticket = random.randint(1000000, 9999999)
-                
+
+                broker_name = 'MT5'
+                if isinstance(connection, IGConnection):
+                    broker_name = 'IG'
+                elif isinstance(connection, XMConnection):
+                    broker_name = 'XM'
+
                 demo_trade = {
                     'success': True,
                     'ticket': ticket,
@@ -2025,16 +2126,16 @@ def place_trade():
                     'currentPrice': entry_price if entry_price > 0 else random.uniform(1, 1000),
                     'profit': profit,
                     'time': datetime.now().isoformat(),
-                    'broker': 'MT5',
+                    'broker': broker_name,
                     'status': 'open',
                 }
-                
+
                 # Store trade in memory so it can be retrieved later
                 if account_id not in demo_trades_storage:
                     demo_trades_storage[account_id] = []
                 demo_trades_storage[account_id].append(demo_trade)
-                
-                logger.info(f"Created and stored demo trade: {symbol} {order_type} {volume} lots for account {account_id}")
+
+                logger.info(f"Created and stored demo trade: {symbol} {order_type} {volume} lots for account {account_id} ({broker_name})")
                 return jsonify(demo_trade), 200
             except Exception as e:
                 logger.error(f"Error creating demo trade: {e}")

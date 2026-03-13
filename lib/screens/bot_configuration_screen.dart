@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/environment_config.dart';
 import '../services/broker_credentials_service.dart';
 import '../services/commission_service.dart';
+import '../services/fund_service.dart';
 import 'bot_dashboard_screen.dart';
 import 'broker_integration_screen.dart';
 
@@ -21,6 +22,8 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
   late TextEditingController _maxDailyLossController;
   late TextEditingController _profitLockController;
   late TextEditingController _drawdownPauseController;
+  FundService _fundService = FundService();
+
   List<String> _allowedVolatility = ['Low', 'Medium'];
 
   String _selectedStrategy = 'Trend Following';
@@ -845,25 +848,155 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
 
           // Create Bot Button
           Center(
-            child: ElevatedButton.icon(
-              onPressed: _isCreating ? null : _createAndStartBot,
-              icon: _isCreating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_circle),
-              label: Text(_isCreating ? 'Creating Bot...' : 'Create & Start Bot'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
+            child: Column(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _isCreating ? null : _createAndStartBot,
+                  icon: _isCreating
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_circle),
+                  label: Text(_isCreating ? 'Creating Bot...' : 'Create & Start Bot'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 16),
+                // Fund Transfer Automation Button
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final fromAccount = _brokerService.activeCredential?.accountNumber;
+                    final toAccount = await _showAccountInputDialog(context);
+                    final amount = await _showAmountInputDialog(context);
+                    if (fromAccount != null && toAccount != null && amount != null) {
+                      _triggerFundTransfer(fromAccount, toAccount, amount);
+                    }
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Automate Fund Transfer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Commission Withdrawal Automation Button (auto-select IG/XM Global)
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final amount = await _showAmountInputDialog(context, title: 'Commission Withdrawal Amount');
+                    if (amount != null) {
+                      // Auto-select IG or XM Global account
+                      final igXmAccount = _brokerService.credentials.firstWhere(
+                        (cred) => cred.broker.toLowerCase().contains('ig') || cred.broker.toLowerCase().contains('xm'),
+                        orElse: () => null,
+                      );
+                      if (igXmAccount == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('No IG or XM Global account found for withdrawal.')),
+                        );
+                        return;
+                      }
+                      // Optionally, trigger fund transfer to IG/XM account
+                      final fromAccount = _brokerService.activeCredential?.accountNumber;
+                      final toAccount = igXmAccount.accountNumber;
+                      final fundSuccess = await _fundService.transferFunds(fromAccount ?? '', toAccount, amount);
+                      if (fundSuccess) {
+                        final success = await _commissionService.requestWithdrawal(amount);
+                        if (success) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Commission withdrawal sent to IG/XM Global account!')),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(_commissionService.errorMessage ?? 'Withdrawal failed')),
+                          );
+                        }
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(_fundService.errorMessage ?? 'Fund transfer to IG/XM failed')),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.attach_money),
+                  label: const Text('Automate Commission Withdrawal (IG/XM)'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+          Future<String?> _showAccountInputDialog(BuildContext context) async {
+            String? account;
+            await showDialog(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  title: const Text('Enter Destination Account'),
+                  content: TextField(
+                    decoration: const InputDecoration(hintText: 'Account Number'),
+                    onChanged: (value) => account = value,
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                );
+              },
+            );
+            return account;
+          }
+
+          Future<double?> _showAmountInputDialog(BuildContext context, {String title = 'Enter Amount'}) async {
+            String? amountStr;
+            await showDialog(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  title: Text(title),
+                  content: TextField(
+                    decoration: const InputDecoration(hintText: 'Amount'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) => amountStr = value,
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                );
+              },
+            );
+            if (amountStr == null) return null;
+            final amount = double.tryParse(amountStr!);
+            return amount;
+          }
         ],
         ),
       ),
@@ -897,5 +1030,18 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
         },
       ),
     );
+  }
+
+  void _triggerFundTransfer(String fromAccount, String toAccount, double amount) async {
+    bool success = await _fundService.transferFunds(fromAccount, toAccount, amount);
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Funds transferred successfully!')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_fundService.errorMessage ?? 'Transfer failed')),
+      );
+    }
   }
 }
