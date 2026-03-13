@@ -316,6 +316,76 @@ class BrokerConnectionService {
     return false;
   }
 
+  /// Test IG Markets connection (REST API based)
+  static Future<Map<String, dynamic>> testIGConnection({
+    required String apiKey,
+    required String username,
+    required String password,
+    required String accountId,
+    bool isLive = false,
+  }) async {
+    try {
+      print('🔌 Testing IG Markets connection: $accountId');
+      
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('auth_token');
+      
+      if (sessionToken == null || sessionToken.isEmpty) {
+        return {'success': false, 'message': 'Session expired. Please login again.'};
+      }
+      
+      // Call backend IG test endpoint
+      final response = await http.post(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/broker/test-connection'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': sessionToken,
+        },
+        body: jsonEncode({
+          'broker': 'IG',
+          'api_key': apiKey,
+          'username': username,
+          'password': password,
+          'account_id': accountId,
+          'is_live': isLive,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        if (data['success'] == true) {
+          print('✅ IG Markets connection successful!');
+          return {
+            'success': true,
+            'credential_id': data['credential_id'],
+            'broker': 'IG Markets',
+            'account_number': accountId,
+            'balance': data['balance'] ?? 0.0,
+            'status': 'CONNECTED',
+            'message': data['message'],
+          };
+        } else {
+          return {
+            'success': false,
+            'message': data['error'] ?? 'IG connection failed',
+          };
+        }
+      } else {
+        return {
+          'success': false,
+          'message': 'IG connection failed: ${response.statusCode}',
+        };
+      }
+    } catch (e) {
+      print('❌ IG connection error: $e');
+      return {
+        'success': false,
+        'message': 'Error: $e',
+      };
+    }
+  }
+
   /// Cleanup resources
   static void dispose() {
     for (var stream in _monitoringStreams.values) {
