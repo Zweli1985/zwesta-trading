@@ -4660,6 +4660,11 @@ def start_bot():
         
         # Reset stop flag and start new thread
         bot_stop_flags[bot_id] = False
+        
+        # ✅ REGISTER BOT AS RUNNING IMMEDIATELY (before thread starts)
+        # This prevents dashboard from showing it as stopped during startup
+        running_bots[bot_id] = True
+        
         bot_thread = threading.Thread(
             target=continuous_bot_trading_loop,
             args=(bot_id, user_id, bot_credentials),
