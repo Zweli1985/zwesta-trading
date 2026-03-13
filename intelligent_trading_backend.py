@@ -641,12 +641,20 @@ def start_bot():
                 'symbol': trade_params['symbol'],
                 'type': trade_params['type'],
                 'volume': trade_params['volume'],
+                'entryTime': trade_params.get('entry_time', datetime.now().isoformat()),
+                'exitTime': trade_params.get('exit_time', datetime.now().isoformat()),
+                'entryPrice': trade_params.get('entry_price', None),
+                'exitPrice': trade_params.get('exit_price', None),
+                'durationSec': trade_params.get('duration_sec', None),
                 'profit': trade_params['profit'],
                 'timestamp': int(datetime.now().timestamp() * 1000),
-                'time': datetime.now().isoformat(),
                 'botId': bot_id,
                 'strategy': bot['currentStrategy'],
                 'isWinning': trade_params['profit'] > 0,
+                'riskSettings': bot.get('riskSettings', {}),
+                'signals': trade_params.get('signals', None),
+                'cycle': trade_params.get('cycle', None),
+                'source': trade_params.get('source', 'SIM'),
             }
             
             # Update bot stats

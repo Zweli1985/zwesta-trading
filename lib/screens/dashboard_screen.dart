@@ -50,172 +50,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _fetchActiveBots();
     _startAutoRefresh();
   }
-
-  void _startAutoRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted) {
-        _fetchActiveBots();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _fetchActiveBots() async {
-    try {
-      setState(() {
-        _botsLoading = true;
-        _botsError = null;
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      final sessionToken = prefs.getString('auth_token');
-      
-      // Use public endpoint for bot status (no auth required)
-      final response = await http
-          .get(
-            Uri.parse('${EnvironmentConfig.apiUrl}/api/bot/status-public'),
-            headers: {
-              'Content-Type': 'application/json',
-              if (sessionToken != null && sessionToken.isNotEmpty)
-                'X-Session-Token': sessionToken,
-            },
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _activeBotsList = data['bots'] ?? [];
-          _botsLoading = false;
-        });
-      } else {
-        setState(() {
-          _botsError = 'Failed to load bots';
-          _botsLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error fetching bots: $e');
-      setState(() {
-        _botsError = 'Connection error - backend may be offline';
-        _botsLoading = false;
-        _activeBotsList = [];
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _buildAppBar(),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppColors.primaryGradient,
-        ),
-        child: _buildBody(),
-      ),
-      bottomNavigationBar: _buildBottomNavigationBar(),
-      drawer: _buildDrawerMenu(),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: const Text('Zwesta Trading System'),
-      elevation: 0,
-      leading: Builder(
-        builder: (BuildContext context) {
-          return IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () {
-              Scaffold.of(context).openDrawer();
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildDashboardView();
-      case 1:
-        return const TradesScreen();
-      case 2:
-        return const AccountManagementScreen();
-      case 3:
-        return _buildBotSection();
-      default:
-        return _buildDashboardView();
-    }
-  }
-
-  Widget _buildBotSection() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Bot Dashboard',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-          ),
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Automated Trading Bots',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 12),
-                  Text(
-                    'Configure and manage your automated trading bots.',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const BotConfigurationScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.settings),
-              label: const Text('Configure Bots'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDashboardView() {
     return Consumer<TradingService>(
       builder: (context, tradingService, _) {
         return SingleChildScrollView(
@@ -223,15 +57,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Welcome Card
-              Card(
-                color: Colors.blue,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Consumer<AuthService>(
+              // Error and API status display
+              if (tradingService.errorMessage != null)
+                Card(
+                  color: Colors.red[100],
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error, color: Colors.red),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            tradingService.errorMessage!,
+                            style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (!tradingService.isUsingApi)
+                Card(
+                  color: Colors.orange[100],
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'App is using mock data. Check API URL and backend status.',
+                            style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              // ...existing code...
                         builder: (context, authService, _) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,

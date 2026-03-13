@@ -199,6 +199,10 @@ class BrokerType(Enum):
     FXOPEN = "fxopen"
     EXNESS = "exness"
     DARWINEX = "darwinex"
+    IG = "ig"
+    FXM = "fxm"
+    AVATRADE = "avatrade"
+    FPMARKETS = "fpmarkets"
 
 
 # ==================== DATABASE SETUP ====================
@@ -1792,6 +1796,41 @@ def list_brokers():
             'assets': ['Forex', 'Metals', 'Indices', 'CFDs'],
             'status': 'coming_soon'
         },
+        {
+            'type': 'ig',
+            'name': 'IG',
+            'description': 'IG Group - Global Forex and CFD broker',
+            'assets': ['Forex', 'Indices', 'Commodities', 'CFDs'],
+            'status': 'coming_soon'
+        },
+        {
+            'type': 'fxm',
+            'name': 'FXM',
+            'description': 'FXM - Forex and CFD broker',
+            'assets': ['Forex', 'CFDs'],
+            'status': 'coming_soon'
+        },
+        {
+            'type': 'avatrade',
+            'name': 'AvaTrade',
+            'description': 'AvaTrade - Regulated global broker',
+            'assets': ['Forex', 'CFDs', 'Cryptos'],
+            'status': 'coming_soon'
+        },
+        {
+            'type': 'fpmarkets',
+            'name': 'FP Markets',
+            'description': 'FP Markets - Multi-asset broker',
+            'assets': ['Forex', 'CFDs', 'Commodities', 'Indices'],
+            'status': 'coming_soon'
+        },
+        {
+            'type': 'pepperstone',
+            'name': 'Pepperstone',
+            'description': 'Pepperstone - Award-winning forex broker',
+            'assets': ['Forex', 'CFDs', 'Commodities', 'Indices'],
+            'status': 'coming_soon'
+        },
     ]
     return jsonify({'brokers': brokers})
 
@@ -2140,8 +2179,16 @@ def connect_broker():
             'mt5': BrokerType.METATRADER5,
             'ib': BrokerType.INTERACTIVE_BROKERS,
             'oanda': BrokerType.OANDA,
+            'xm': BrokerType.XM,
+            'pepperstone': BrokerType.PEPPERSTONE,
+            'fxopen': BrokerType.FXOPEN,
+            'exness': BrokerType.EXNESS,
+            'darwinex': BrokerType.DARWINEX,
+            'ig': BrokerType.IG,
+            'fxm': BrokerType.FXM,
+            'avatrade': BrokerType.AVATRADE,
+            'fpmarkets': BrokerType.FPMARKETS,
         }
-        
         broker_type = broker_type_map.get(broker_type_str.lower(), BrokerType.METATRADER5)
         
         if not broker_manager.add_connection(account_id, broker_type, credentials):
@@ -3167,23 +3214,42 @@ def get_best_trading_assets(limit=5):
     """
     with market_data_lock:
         asset_scores = {}
-        
         for symbol, data in commodity_market_data.items():
-            # Base profitability score
+
+            # Example: Main bot trading loop or trade execution function (pseudo-code, adapt to your actual loop)
+            def execute_bot_trade(bot_id):
+                bot = active_bots.get(bot_id)
+                if not bot or not bot.get('enabled', True):
+                    return
+
+                # Choose best symbol to trade
+                tradable_symbols = [s for s in bot.get('symbols', []) if should_trade_today(bot, s)]
+                if not tradable_symbols:
+                    logger.info(f"[RISK] Bot {bot_id} has no tradable symbols today (risk filters active)")
+                    return
+                symbol = tradable_symbols[0]  # Or use your asset selection logic
+
+                # ...existing trade logic...
+                # Only place trade if should_trade_today passed
+                # (Insert your trade execution code here)
+
+                # Example: Place trade (pseudo-code)
+                # result = place_trade(symbol, ...)
+                # if result['success']:
+                #     update bot metrics, etc.
+
+            # Note: Integrate this logic into your actual bot trading scheduler/loop.
+            # (unchanged scoring logic)
             base_score = data.get('profitability_score', 0.50)
-            
-            # Signal strength multiplier (0.5x = SELL, 1.0x = CONSOLIDATING, 1.5x = BUY, 2.0x = STRONG BUY)
             signal = data.get('signal', '')
             if 'STRONG BUY' in signal or 'STRONG SELL' in signal:
-                signal_multiplier = 2.0  # Strong signals = high confidence
+                signal_multiplier = 2.0
             elif 'BUY' in signal or 'SELL' in signal:
                 signal_multiplier = 1.5
             elif 'WEAK' in signal or 'VOLATILE' in signal:
                 signal_multiplier = 1.2
-            else:  # CONSOLIDATING or NEUTRAL
+            else:
                 signal_multiplier = 0.8
-            
-            # Volatility multiplier (more volatile = more profit potential)
             volatility = data.get('volatility', 'Medium')
             volatility_multiplier = {
                 'Very Low': 0.6,
@@ -3192,20 +3258,13 @@ def get_best_trading_assets(limit=5):
                 'High': 1.4,
                 'Very High': 1.8,
             }.get(volatility, 1.0)
-            
-            # Trend direction bonus
             trend = data.get('trend', 'FLAT')
             trend_bonus = 0.15 if trend == 'UP' else (-0.10 if trend == 'DOWN' else 0)
-            
-            # Price change momentum
             change = data.get('change', 0)
-            change_bonus = min(abs(change) / 100, 0.20)  # Max 0.20 bonus from price change
+            change_bonus = min(abs(change) / 100, 0.20)
             if change < 0 and 'SELL' not in signal:
-                change_bonus *= 0.5  # Reduce score if trending down without sell signal
-            
-            # Calculate final score
+                change_bonus *= 0.5
             final_score = (base_score * signal_multiplier * volatility_multiplier) + trend_bonus + change_bonus
-            
             asset_scores[symbol] = {
                 'score': final_score,
                 'base_score': base_score,
@@ -3214,15 +3273,49 @@ def get_best_trading_assets(limit=5):
                 'trend': trend,
                 'change': change,
             }
-        
-        # Sort by score and return top symbols
         sorted_assets = sorted(asset_scores.items(), key=lambda x: x[1]['score'], reverse=True)
         top_assets = [symbol for symbol, data in sorted_assets[:limit]]
-        
         asset_strings = [f"{s}({asset_scores[s]['score']:.2f})" for s in top_assets]
         logger.info(f"[INTELLIGENT TRADING] Top {limit} assets for trading: {', '.join(asset_strings)}")
-        
         return top_assets
+# --- ENHANCED RISK MANAGEMENT: Profit Lock-In, Volatility Filter, Regime Check, Drawdown Pause ---
+def should_trade_today(bot_config, symbol):
+    """
+    Returns False if bot should NOT trade today due to profit lock-in, drawdown, volatility, or regime filter.
+    """
+    # 1. Profit Lock-In: If daily profit exceeds lock threshold, stop trading for the day
+    profit_lock = bot_config.get('profitLock', 0.0) or 0.0  # e.g., 500 (set per bot)
+    today = datetime.now().strftime('%Y-%m-%d')
+    daily_profit = bot_config.get('dailyProfits', {}).get(today, 0.0)
+    if profit_lock > 0 and daily_profit >= profit_lock:
+        logger.info(f"[RISK] Bot {bot_config.get('botId')} hit daily profit lock-in (${daily_profit:.2f} >= ${profit_lock:.2f}), pausing trading for today.")
+        return False
+
+    # 2. Drawdown Pause: If drawdown from peak profit exceeds threshold, pause trading
+    peak = bot_config.get('peakProfit', 0)
+    max_dd = bot_config.get('maxDrawdown', 0)
+    dd_threshold = bot_config.get('drawdownPausePercent', 0.0) or 0.0  # e.g., 10 (%)
+    if peak > 0 and dd_threshold > 0:
+        dd_percent = (max_dd / peak) * 100
+        if dd_percent >= dd_threshold:
+            logger.info(f"[RISK] Bot {bot_config.get('botId')} drawdown {dd_percent:.1f}% >= {dd_threshold}%, pausing trading.")
+            return False
+
+    # 3. Volatility Filter: Only trade if volatility is allowed
+    allowed_vol = bot_config.get('allowedVolatility', ['Low', 'Medium'])
+    # Get current volatility for symbol
+    vol = commodity_market_data.get(symbol, {}).get('volatility', 'Medium')
+    if allowed_vol and vol not in allowed_vol:
+        logger.info(f"[RISK] Bot {bot_config.get('botId')} skipping {symbol} due to volatility: {vol}")
+        return False
+
+    # 4. Regime Check: Only trade if signal is strong (not consolidating/weak)
+    signal = commodity_market_data.get(symbol, {}).get('signal', '')
+    if 'CONSOLIDAT' in signal or 'VOLATILE' in signal or 'WEAK' in signal:
+        logger.info(f"[RISK] Bot {bot_config.get('botId')} skipping {symbol} due to regime: {signal}")
+        return False
+
+    return True
 
 def get_live_prices_from_mt5():
     """Fetch real-time prices from MT5 for all available symbols"""
@@ -3562,6 +3655,42 @@ REGISTERED_BROKERS = [
         'account_types': ['DEMO', 'LIVE'],
         'is_active': True,
         'description': 'Australian regulated MT5 broker',
+    },
+    {
+        'id': 'ig',
+        'name': 'IG',
+        'display_name': 'IG Group',
+        'logo': '🌍',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'IG Group - Global Forex and CFD broker',
+    },
+    {
+        'id': 'fxm',
+        'name': 'FXM',
+        'display_name': 'FXM',
+        'logo': '💱',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'FXM - Forex and CFD broker',
+    },
+    {
+        'id': 'avatrade',
+        'name': 'AvaTrade',
+        'display_name': 'AvaTrade',
+        'logo': '🦅',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'AvaTrade - Regulated global broker',
+    },
+    {
+        'id': 'fpmarkets',
+        'name': 'FP Markets',
+        'display_name': 'FP Markets',
+        'logo': '🏦',
+        'account_types': ['DEMO', 'LIVE'],
+        'is_active': True,
+        'description': 'FP Markets - Multi-asset broker',
     },
 ]
 
@@ -4697,8 +4826,11 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                                             'volume': pos['volume'],
                                             'baseVolume': trade_params['volume'],
                                             'positionSize': position_size,
+                                            'entryTime': trade_params.get('entry_time', pos.get('openTime', datetime.now().isoformat())),
+                                            'exitTime': trade_params.get('exit_time', datetime.now().isoformat()),
                                             'entryPrice': pos['openPrice'],
                                             'exitPrice': pos['currentPrice'],
+                                            'durationSec': trade_params.get('duration_sec', None),
                                             'profit': pos['pnl'],
                                             'time': datetime.now().isoformat(),
                                             'timestamp': int(datetime.now().timestamp() * 1000),
@@ -4706,6 +4838,8 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                                             'cycle': trade_cycle,
                                             'strategy': strategy_name,
                                             'isWinning': pos['pnl'] > 0,
+                                            'riskSettings': bot.get('riskSettings', {}),
+                                            'signals': trade_params.get('signals', None),
                                             'source': 'REAL_MT5',
                                         }
                                         
@@ -5495,129 +5629,128 @@ def set_auto_withdrawal(bot_id):
         if withdrawal_mode == 'fixed':
             if not target_profit:
                 return jsonify({'success': False, 'error': 'target_profit required for fixed mode'}), 400
-            
-            if target_profit < 10:
-                return jsonify({'success': False, 'error': 'Minimum profit target is $10'}), 400
-            
-            if target_profit > 50000:
-                return jsonify({'success': False, 'error': 'Maximum profit target is $50,000'}), 400
-        
-        elif withdrawal_mode == 'intelligent':
-            # Intelligent mode parameters
-            min_profit = data.get('min_profit', 50)  # Minimum profit before considering withdrawal
-            max_profit = data.get('max_profit', 1000)  # Maximum profit to withdraw (scales dynamically)
-            volatility_threshold = data.get('volatility_threshold', 0.02)  # Max 2% volatility
-            win_rate_min = data.get('win_rate_min', 60)  # Only withdraw if win rate > 60%
-            trend_strength_min = data.get('trend_strength_min', 0.5)  # Trend strength 0-1
-            
-            if min_profit < 10:
-                return jsonify({'success': False, 'error': 'Minimum profit must be >= $10'}), 400
-            if volatility_threshold < 0 or volatility_threshold > 0.1:
-                return jsonify({'success': False, 'error': 'Volatility threshold must be 0-0.1'}), 400
-            if win_rate_min < 40 or win_rate_min > 100:
-                return jsonify({'success': False, 'error': 'Win rate must be 40-100%'}), 400
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        setting_id = str(uuid.uuid4())
-        created_at = datetime.now().isoformat()
-        
-        if withdrawal_mode == 'fixed':
-            cursor.execute('''
-                INSERT OR REPLACE INTO auto_withdrawal_settings 
-                (setting_id, bot_id, user_id, target_profit, withdrawal_mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (setting_id, bot_id, user_id, target_profit, 'fixed', created_at, created_at))
-            
-            message = f'Fixed withdrawal set: Will withdraw when profit reaches ${target_profit}'
-        else:
-            cursor.execute('''
-                INSERT OR REPLACE INTO auto_withdrawal_settings 
-                (setting_id, bot_id, user_id, withdrawal_mode, min_profit, max_profit, 
-                 volatility_threshold, win_rate_min, trend_strength_min, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (setting_id, bot_id, user_id, 'intelligent', min_profit, max_profit,
-                  volatility_threshold, win_rate_min, trend_strength_min, created_at, created_at))
-            
-            message = f'Intelligent withdrawal activated with min profit ${min_profit}, max ${max_profit}'
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"Auto-withdrawal configured for bot {bot_id}: {withdrawal_mode} mode")
-        
-        return jsonify({
-            'success': True,
-            'setting_id': setting_id,
-            'bot_id': bot_id,
-            'withdrawal_mode': withdrawal_mode,
-            'message': message
-        }), 200
+            @require_api_key
+            def set_auto_withdrawal(bot_id):
+                """
+                Set withdrawal mode and parameters for a bot
     
-    except Exception as e:
-        logger.error(f"Error setting auto-withdrawal: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+                Modes:
+                - 'fixed': Withdraw at user-predetermined profit level
+                - 'intelligent': Robot decides intelligently based on market conditions
+                """
+                try:
+                    data = request.get_json()
+                    user_id = data.get('user_id')
+                    withdrawal_mode = data.get('withdrawal_mode', 'fixed')  # 'fixed' or 'intelligent'
+                    target_profit = data.get('target_profit')               # For fixed mode
 
+                    if not user_id:
+                        return jsonify({'success': False, 'error': 'user_id required'}), 400
 
-@app.route('/api/bot/<bot_id>/intelligent-withdrawal', methods=['POST'])
-@require_api_key
-def configure_intelligent_withdrawal(bot_id):
-    """
-    Configure intelligent withdrawal parameters for a bot
-    
-    Robot will withdraw profits automatically when:
-    - Profit reaches min_profit threshold
-    - Win rate > win_rate_min
-    - Market volatility < volatility_threshold
-    - Trend strength > trend_strength_min
-    """
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        
-        if not user_id:
-            return jsonify({'success': False, 'error': 'user_id required'}), 400
-        
-        # Get or create settings (first set to intelligent mode)
-        min_profit = data.get('min_profit', 50)
-        max_profit = data.get('max_profit', 1000)
-        volatility_threshold = data.get('volatility_threshold', 0.02)
-        win_rate_min = data.get('win_rate_min', 60)
-        trend_strength_min = data.get('trend_strength_min', 0.5)
-        time_between_withdrawals_hours = data.get('time_between_withdrawals_hours', 24)
-        
-        # Validate parameters
-        bots_list = []
-        # Only include ENABLED (running) bots
-        for bot_id, bot in active_bots.items():
-            is_marked_running = running_bots.get(bot_id, False)
-            is_enabled = bot.get('enabled', True)
-            if not is_marked_running and not is_enabled:
-                logger.debug(f"Skipping bot {bot_id}: marked_running={is_marked_running}, enabled={is_enabled}")
-                continue
-            # ...existing code...
-            enhanced_bot = {
-                'botId': bot.get('botId', 'unknown'),
-                'symbol': symbol,
-                'strategy': bot.get('strategy', 'Unknown'),
-                # ...existing code...
-            }
-            bots_list.append(enhanced_bot)
-        # Sort bots by creation time descending and show only 5 most recent
-        bots_list = sorted(bots_list, key=lambda b: b.get('lastTradeTime', ''), reverse=True)[:5]
-        return jsonify({
-            'success': True,
-            'activeBots': len([b for b in bots_list if b.get('enabled', True)]),
-            'bots': bots_list,
-            'timestamp': datetime.now().isoformat(),
-        }), 200
-             volatility_threshold, win_rate_min, trend_strength_min, 
-             time_between_withdrawals_hours, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (setting_id, bot_id, user_id, 'intelligent', min_profit, max_profit,
-              volatility_threshold, win_rate_min, trend_strength_min,
-              time_between_withdrawals_hours, created_at, created_at))
+                    if withdrawal_mode not in ['fixed', 'intelligent']:
+                        return jsonify({'success': False, 'error': "withdrawal_mode must be 'fixed' or 'intelligent'"}), 400
+
+                    # Validate based on mode
+                    if withdrawal_mode == 'fixed':
+                        if not target_profit:
+                            return jsonify({'success': False, 'error': 'target_profit required for fixed mode'}), 400
+
+                        if target_profit < 10:
+                            return jsonify({'success': False, 'error': 'Minimum profit target is $10'}), 400
+
+                        if target_profit > 50000:
+                            return jsonify({'success': False, 'error': 'Maximum profit target is $50,000'}), 400
+
+                    elif withdrawal_mode == 'intelligent':
+                        # Intelligent mode parameters
+                        min_profit                 = data.get('min_profit', 50)
+                        max_profit                 = data.get('max_profit', 1000)
+                        volatility_threshold       = data.get('volatility_threshold', 0.02)
+                        win_rate_min               = data.get('win_rate_min', 60)
+                        trend_strength_min         = data.get('trend_strength_min', 0.5)
+                        time_between_withdrawals_hours = data.get('time_between_withdrawals_hours', 24)
+
+                        # Validate parameters
+                        if min_profit < 10:
+                            return jsonify({'success': False, 'error': 'Minimum profit must be >= $10'}), 400
+                        if volatility_threshold < 0 or volatility_threshold > 0.1:
+                            return jsonify({'success': False, 'error': 'Volatility threshold must be 0-0.1'}), 400
+                        if win_rate_min < 40 or win_rate_min > 100:
+                            return jsonify({'success': False, 'error': 'Win rate must be 40-100%'}), 400
+
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+
+                    setting_id = str(uuid.uuid4())
+                    created_at = datetime.now().isoformat()
+                    updated_at = created_at
+
+                    if withdrawal_mode == 'fixed':
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO auto_withdrawal_settings
+                            (setting_id, bot_id, user_id, target_profit, is_active,
+                             withdrawal_mode, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            setting_id,
+                            bot_id,
+                            user_id,
+                            target_profit,
+                            1,
+                            'fixed',
+                            created_at,
+                            updated_at
+                        ))
+
+                        message = f'Fixed withdrawal set: Will withdraw when profit reaches ${target_profit}'
+
+                    else:  # intelligent
+                        cursor.execute('''
+                            INSERT OR REPLACE INTO auto_withdrawal_settings
+                            (setting_id, bot_id, user_id, withdrawal_mode,
+                             min_profit, max_profit, volatility_threshold,
+                             win_rate_min, trend_strength_min,
+                             time_between_withdrawals_hours,
+                             last_withdrawal_at,
+                             created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            setting_id,
+                            bot_id,
+                            user_id,
+                            'intelligent',
+                            min_profit,
+                            max_profit,
+                            volatility_threshold,
+                            win_rate_min,
+                            trend_strength_min,
+                            time_between_withdrawals_hours,
+                            None,               # last_withdrawal_at starts NULL
+                            created_at,
+                            updated_at
+                        ))
+
+                        message = (
+                            f'Intelligent withdrawal activated with min profit ${min_profit}, '
+                            f'max ${max_profit}, volatility < {volatility_threshold:.2%}'
+                        )
+
+                    conn.commit()
+                    conn.close()
+
+                    logger.info(f"Auto-withdrawal configured for bot {bot_id}: {withdrawal_mode} mode")
+
+                    return jsonify({
+                        'success': True,
+                        'setting_id': setting_id,
+                        'bot_id': bot_id,
+                        'withdrawal_mode': withdrawal_mode,
+                        'message': message
+                    }), 200
+
+                except Exception as e:
+                    logger.error(f"Error setting auto-withdrawal: {e}")
+                    return jsonify({'success': False, 'error': str(e)}), 500
         
         conn.commit()
         conn.close()
@@ -6431,43 +6564,42 @@ def auto_withdrawal_monitor():
             trades_count = bot_config.get('tradesCount', 0)
             
             # Need at least 5 trades to make intelligent decision
-                                        # Update trade stats
-                                        bot_config['totalTrades'] = bot_config.get('totalTrades', 0) + 1
-                                        if trade['profit'] > 0:
-                                            bot_config['winningTrades'] = bot_config.get('winningTrades', 0) + 1
-                                        else:
-                                            bot_config['losingTrades'] = bot_config.get('losingTrades', 0) + 1
-                                            bot_config['totalLosses'] = bot_config.get('totalLosses', 0) + abs(trade['profit'])
-                                        bot_config['totalProfit'] = bot_config.get('totalProfit', 0) + trade['profit']
-                                        # Update peak & drawdown
-                                        if bot_config['totalProfit'] > bot_config.get('peakProfit', 0):
-                                            bot_config['peakProfit'] = bot_config['totalProfit']
-                                        drawdown = bot_config.get('peakProfit', 0) - bot_config['totalProfit']
-                                        if drawdown > bot_config.get('maxDrawdown', 0):
-                                            bot_config['maxDrawdown'] = drawdown
-                                        # Track profit history
-                                        bot_config.setdefault('profitHistory', []).append({
-                                            'timestamp': trade['timestamp'],
-                                            'profit': round(bot_config['totalProfit'], 2),
-                                            'trades': bot_config['totalTrades'],
-                                        })
-                                        # Track trade history
-                                        bot_config.setdefault('tradeHistory', []).append(trade)
-                                        # Track daily profit
-                                        today = datetime.now().strftime('%Y-%m-%d')
-                                        bot_config.setdefault('dailyProfits', {})
-                                        if today not in bot_config['dailyProfits']:
-                                            bot_config['dailyProfits'][today] = 0
-                                        bot_config['dailyProfits'][today] += trade['profit']
-                                        # Distribution commissions
-                                        if trade['profit'] > 0:
-                                            try:
-                                                distribute_trade_commissions(bot_id, user_id, trade['profit'])
-                                            except Exception as e:
-                                                logger.error(f"Bot {bot_id}: Commission error: {e}")
-                                        logger.info(f"✅ Bot {bot_id}: Trade executed | {symbol} {order_type} | P&L: ${trade['profit']:.2f}")
-                                        trades_placed += 1
-                                        break
+            # Update trade stats
+            bot_config['totalTrades'] = bot_config.get('totalTrades', 0) + 1
+            if trade['profit'] > 0:
+                bot_config['winningTrades'] = bot_config.get('winningTrades', 0) + 1
+            else:
+                bot_config['losingTrades'] = bot_config.get('losingTrades', 0) + 1
+                bot_config['totalLosses'] = bot_config.get('totalLosses', 0) + abs(trade['profit'])
+            bot_config['totalProfit'] = bot_config.get('totalProfit', 0) + trade['profit']
+            # Update peak & drawdown
+            if bot_config['totalProfit'] > bot_config.get('peakProfit', 0):
+                bot_config['peakProfit'] = bot_config['totalProfit']
+            drawdown = bot_config.get('peakProfit', 0) - bot_config['totalProfit']
+            if drawdown > bot_config.get('maxDrawdown', 0):
+                bot_config['maxDrawdown'] = drawdown
+            # Track profit history
+            bot_config.setdefault('profitHistory', []).append({
+                'timestamp': trade['timestamp'],
+                'profit': round(bot_config['totalProfit'], 2),
+                'trades': bot_config['totalTrades'],
+            })
+            # Track trade history
+            bot_config.setdefault('tradeHistory', []).append(trade)
+            # Track daily profit
+            today = datetime.now().strftime('%Y-%m-%d')
+            bot_config.setdefault('dailyProfits', {})
+            if today not in bot_config['dailyProfits']:
+                bot_config['dailyProfits'][today] = 0
+            bot_config['dailyProfits'][today] += trade['profit']
+            # Distribution commissions
+            if trade['profit'] > 0:
+                try:
+                    distribute_trade_commissions(bot_id, user_id, trade['profit'])
+                except Exception as e:
+                    logger.error(f"Bot {bot_id}: Commission error: {e}")
+            logger.info(f"✅ Bot {bot_id}: Trade executed | {symbol} {order_type} | P&L: ${trade['profit']:.2f}")
+            trades_placed += 1
             
             return True, withdrawal_amount
         
@@ -7130,21 +7262,6 @@ def restore_from_backup():
             }
             print("\n=== Auto-Withdrawal Status ===\n", result)
             return jsonify(result), 200
-    
-        except Exception as e:
-            logger.error(f"Error getting auto-withdrawal status: {e}")
-            print("\n=== Auto-Withdrawal Status Error ===\n", str(e))
-            return jsonify({'success': False, 'error': str(e)}), 500
-                'success': True,
-                'message': 'Database restored successfully',
-                'backup_restored': backup_filename,
-                'timestamp': datetime.now().isoformat(),
-            }), 200
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Restore failed - check logs'
-            }), 500
             
     except Exception as e:
         logger.error(f"Restore backup error: {e}")

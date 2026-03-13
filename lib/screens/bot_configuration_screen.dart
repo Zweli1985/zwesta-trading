@@ -19,7 +19,10 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
   late TextEditingController _botIdController;
   late TextEditingController _riskPerTradeController;
   late TextEditingController _maxDailyLossController;
-  
+  late TextEditingController _profitLockController;
+  late TextEditingController _drawdownPauseController;
+  List<String> _allowedVolatility = ['Low', 'Medium'];
+
   String _selectedStrategy = 'Trend Following';
   List<String> _selectedSymbols = [];
   bool _isCreating = false;
@@ -51,6 +54,8 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
     );
     _riskPerTradeController = TextEditingController(text: '100');
     _maxDailyLossController = TextEditingController(text: '500');
+    _profitLockController = TextEditingController(text: '500');
+    _drawdownPauseController = TextEditingController(text: '10');
     
     // Initialize services
     _brokerService = BrokerCredentialsService();
@@ -69,7 +74,7 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+                                                                                                                                                
         setState(() {
           // Get market data for signal display (flat dict: {EURUSD: {signal, trend, ...}, ...})
           final marketDataResponse = data['marketData'] ?? {};
@@ -131,6 +136,8 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
     _botIdController.dispose();
     _riskPerTradeController.dispose();
     _maxDailyLossController.dispose();
+    _profitLockController.dispose();
+    _drawdownPauseController.dispose();
     super.dispose();
   }
 
@@ -216,6 +223,9 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
           'strategy': _selectedStrategy,
           'riskPerTrade': double.parse(_riskPerTradeController.text),
           'maxDailyLoss': double.parse(_maxDailyLossController.text),
+          'profitLock': double.tryParse(_profitLockController.text) ?? 0.0,
+          'drawdownPausePercent': double.tryParse(_drawdownPauseController.text) ?? 0.0,
+          'allowedVolatility': _allowedVolatility,
           'enabled': true,
         }),
       ).timeout(const Duration(seconds: 10));
@@ -763,7 +773,7 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
                     controller: _riskPerTradeController,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: 'Risk Per Trade (\$)',
+                      labelText: 'Risk Per Trade (4)',
                       hintText: '100',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -775,12 +785,57 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
                     controller: _maxDailyLossController,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: 'Max Daily Loss (\$)',
+                      labelText: 'Max Daily Loss (4)',
                       hintText: '500',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _profitLockController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Daily Profit Lock-In (4)',
+                      hintText: '500',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _drawdownPauseController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Drawdown Pause (%)',
+                      hintText: '10',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Allowed Volatility:', style: Theme.of(context).textTheme.bodyMedium),
+                  Wrap(
+                    spacing: 8,
+                    children: ['Very Low', 'Low', 'Medium', 'High', 'Very High'].map((level) {
+                      final selected = _allowedVolatility.contains(level);
+                      return FilterChip(
+                        label: Text(level),
+                        selected: selected,
+                        onSelected: (val) {
+                          setState(() {
+                            if (val) {
+                              _allowedVolatility.add(level);
+                            } else {
+                              _allowedVolatility.remove(level);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
