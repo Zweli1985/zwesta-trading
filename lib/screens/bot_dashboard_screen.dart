@@ -155,12 +155,6 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
   }
 
   @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
