@@ -4316,7 +4316,7 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                         order_result = None
                         symbols_to_try = [symbol, 'EURUSD']  # Try original symbol, then fallback
                         
-                        for attempt_symbol in symbols_to_try:
+                        for index, attempt_symbol in enumerate(symbols_to_try):
                             try:
                                 order_result = mt5_conn.place_order(
                                     symbol=attempt_symbol,
@@ -4329,19 +4329,24 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
                                     logger.info(f"✅ Bot {bot_id}: Order placed successfully on {attempt_symbol}")
                                     symbol = attempt_symbol
                                     break
-                                elif 'not found' in order_result.get('error', '').lower():
-                                    logger.warning(f"Bot {bot_id}: Symbol {attempt_symbol} not found - trying next...")
-                                    continue
                                 else:
-                                    logger.warning(f"Bot {bot_id}: Order failed on {attempt_symbol}: {order_result.get('error')}")
-                                    # Don't continue on other errors, last attempt
-                                    break
+                                    error_msg = order_result.get('error', '').lower()
+                                    is_last_attempt = (index == len(symbols_to_try) - 1)
+                                    
+                                    # Retry on: symbol not found OR terminal disconnected
+                                    if ('not found' in error_msg or 'disconnected' in error_msg or 'order_send failed' in error_msg) and not is_last_attempt:
+                                        logger.warning(f"Bot {bot_id}: Order failed on {attempt_symbol} ({order_result.get('error')}) - trying {symbols_to_try[index+1]}...")
+                                        continue
+                                    else:
+                                        # Last attempt or non-retryable error
+                                        logger.warning(f"Bot {bot_id}: Order failed on {attempt_symbol}: {order_result.get('error')}")
+                                        break
                             except Exception as e:
                                 logger.error(f"Bot {bot_id}: Exception placing order on {attempt_symbol}: {e}")
-                                if attempt_symbol == symbols_to_try[-1]:
-                                    # Last attempt failed
-                                    break
-                                continue
+                                if index < len(symbols_to_try) - 1:
+                                    # Try next symbol
+                                    continue
+                                break
                         
                         if order_result and order_result.get('success', False):
                             # Get current position info
