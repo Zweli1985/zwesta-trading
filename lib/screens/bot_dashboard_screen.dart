@@ -1,6 +1,12 @@
+import '../services/notification_service.dart';
+import '../providers/currency_provider.dart';
+import '../widgets/global_loading_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zwesta_trader/screens/_summary_tile.dart';
+import '../widgets/global_error_banner.dart';
+import '../utils/session_utils.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -26,12 +32,111 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
   String? _connectedServer;
   List<dynamic> _activeBots = [];
   bool _isLoading = false;
+  String? _successMessage;
+  double? _brokerBalance;
+  bool _isBalanceLoading = false;
+  String? _userName;
+  String? _globalError;
+  final List<Color> _botCardColors = [
+    Colors.blue.shade700,
+    Colors.green.shade700,
+    Colors.orange.shade700,
+    Colors.purple.shade700,
+    Colors.red.shade700,
+    Colors.teal.shade700,
+    Colors.indigo.shade700,
+    Colors.deepOrange.shade700,
+  ];
+
+  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadConnectedAccount();
+    _fetchBrokerBalance();
+    _fetchUserName();
     _startAutoRefresh();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _refreshDashboard();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForSuccessMessage();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchUserName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _userName = prefs.getString('user_name') ?? 'Trader';
+      });
+    } catch (e) {
+      setState(() {
+        _userName = 'Trader';
+      });
+    }
+  }
+
+  Future<void> _fetchBrokerBalance() async {
+    setState(() => _isBalanceLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('auth_token');
+      final response = await http.get(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/account/info'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (sessionToken != null && sessionToken.isNotEmpty)
+            'X-Session-Token': sessionToken,
+        },
+      ).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _brokerBalance = data['account']?['balance']?.toDouble() ?? 0.0;
+          _globalError = null;
+        });
+      } else if (response.statusCode == 401) {
+        handleSessionExpired(context);
+      } else {
+        setState(() {
+          _globalError = 'Failed to fetch broker balance: ${response.statusCode}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _brokerBalance = null;
+        _globalError = 'Error fetching broker balance: $e';
+      });
+    }
+    setState(() => _isBalanceLoading = false);
+  }
+
+  void _checkForSuccessMessage() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args.containsKey('botCreated') && args['botCreated'] == true) {
+      setState(() {
+        _successMessage = args['message'] ?? 'Bot created and started successfully! 🎉';
+      });
+      // Show snack bar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_successMessage ?? ''),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      // Auto-refresh bots list
+      _fetchBotStatus();
+    }
   }
 
   void _loadConnectedAccount() async {
@@ -73,13 +178,16 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
   }
 
   void _startAutoRefresh() {
-    // First refresh at 2 seconds (faster for new bots)
-    Future.delayed(const Duration(seconds: 2), () {
+    // First refresh immediately (to catch newly created bots)
+    if (mounted) _fetchBotStatus();
+    
+    // Second refresh at 1 second (faster for new bots)
+    Future.delayed(const Duration(seconds: 1), () {
       if (mounted) _fetchBotStatus();
     });
     
-    // Then refresh every 15 seconds for active monitoring
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+    // Then refresh every 10 seconds for active monitoring
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       if (mounted) {
         _fetchBotStatus();
         final tradingService =
@@ -107,6 +215,25 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
         title: const Text('Delete Bot'),
         content: Text('Are you sure you want to delete "$botId"? This action cannot be undone.'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Activity Log',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const ActivityLogScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications),
+            tooltip: 'Test Notification',
+            onPressed: () {
+              NotificationService.showNotification(
+                title: 'ZWESTA Notification',
+                body: 'This is a test notification!',
+              );
+            },
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
@@ -148,13 +275,15 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
 
       if (response.statusCode == 200) {
         if (mounted) {
+          setState(() {
+            _activeBots.removeWhere((b) => b['botId'] == botId);
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Bot "$botId" deleted successfully'),
               backgroundColor: Colors.green,
             ),
           );
-          _fetchBotStatus();
         }
       } else {
         if (mounted) {
@@ -187,6 +316,35 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
         backgroundColor: Colors.grey[900],
         elevation: 0,
         actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: BackendStatusIndicator(),
+          ),
+          Consumer<CurrencyProvider>(
+            builder: (context, currencyProvider, _) => DropdownButton<AppCurrency>(
+              value: currencyProvider.currency,
+              underline: SizedBox.shrink(),
+              icon: const Icon(Icons.currency_exchange, color: Colors.white),
+              dropdownColor: Colors.grey[900],
+              items: const [
+                DropdownMenuItem(
+                  value: AppCurrency.usd,
+                  child: Text('USD', style: TextStyle(color: Colors.white)),
+                ),
+                DropdownMenuItem(
+                  value: AppCurrency.zar,
+                  child: Text('ZAR', style: TextStyle(color: Colors.white)),
+                ),
+                DropdownMenuItem(
+                  value: AppCurrency.gbp,
+                  child: Text('GBP', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) currencyProvider.setCurrency(val);
+              },
+            ),
+          ),
           TextButton.icon(
             onPressed: () {
               Navigator.of(context).push(
@@ -198,56 +356,126 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
           ),
         ],
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppColors.successGradient,
-        ),
-        child: RefreshIndicator(
-          onRefresh: _fetchBotStatus,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-              // Connected Account Info
-              if (_connectedAccount != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    border: Border.all(color: Colors.blue),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.blue),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Connected Account',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              'Account: $_connectedAccount • Server: $_connectedServer',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.autorenew, size: 18, color: Colors.blue),
-                    ],
+      body: GlobalLoadingOverlay(
+        isLoading: _isLoading || _isBalanceLoading,
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: AppColors.successGradient,
+          ),
+          child: Column(
+            children: [
+              GlobalErrorBanner(
+                errorMessage: _globalError,
+                show: _globalError != null,
+                onRetry: () {
+                  setState(() => _globalError = null);
+                  _fetchBrokerBalance();
+                },
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    await _fetchBotStatus();
+                    await _fetchBrokerBalance();
+                    await _fetchUserName();
+                  },
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                // Greeting Header
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'Welcome, ${_userName ?? 'Trader'}!',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.amberAccent,
+                    ),
                   ),
                 ),
-              const SizedBox(height: 16),
+                // Summary Row
+                if (_activeBots.isNotEmpty)
+                  Consumer<CurrencyProvider>(
+                    builder: (context, currencyProvider, _) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _SummaryTile(
+                            label: 'Total Bots',
+                            value: _activeBots.length.toString(),
+                            icon: Icons.smart_toy,
+                            color: Colors.blueAccent,
+                          ),
+                          _SummaryTile(
+                            label: 'Total Profit',
+                            value: '${currencyProvider.symbol} ' + currencyProvider.convert(_activeBots.fold<double>(0, (sum, b) => sum + ((b['totalProfit'] ?? 0).toDouble())), fromUsd: false).toStringAsFixed(2),
+                            icon: Icons.trending_up,
+                            color: Colors.greenAccent,
+                          ),
+                          _SummaryTile(
+                            label: 'Avg Win Rate',
+                            value: _activeBots.isNotEmpty
+                                ? (_activeBots.fold<double>(0, (sum, b) {
+                                    final total = (b['totalTrades'] ?? 0).toDouble();
+                                    final win = (b['winningTrades'] ?? 0).toDouble();
+                                    return sum + (total > 0 ? (win / total * 100) : 0);
+                                  }) /
+                                    _activeBots.length).toStringAsFixed(1) + '%'
+                                : '0.0%',
+                            icon: Icons.emoji_events,
+                            color: Colors.orangeAccent,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              // Broker Balance Card
+              Consumer<CurrencyProvider>(
+                builder: (context, currencyProvider, _) => Card(
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  color: Colors.black87,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    child: Row(
+                      children: [
+                        Icon(Icons.account_balance_wallet_rounded, color: Colors.amberAccent, size: 38),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Broker Balance', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                              _isBalanceLoading
+                                  ? const Padding(
+                                      padding: EdgeInsets.only(top: 6),
+                                      child: SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                                    )
+                                  : Text(
+                                      _brokerBalance != null
+                                          ? '${currencyProvider.symbol} ${currencyProvider.convert(_brokerBalance!, fromUsd: false).toStringAsFixed(2)}'
+                                          : 'Unavailable',
+                                      style: const TextStyle(fontSize: 22, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                    ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white70),
+                          onPressed: _fetchBrokerBalance,
+                          tooltip: 'Refresh Balance',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
 
               // Bot Rental Agreement Image
               Container(
@@ -389,11 +617,15 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                         ? (winningTrades / totalTrades * 100).toStringAsFixed(1)
                         : '0.0';
                     final profit = (bot['totalProfit'] ?? 0).toStringAsFixed(2);
+                    final cardColor = _botCardColors[index % _botCardColors.length];
 
                     return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      elevation: 7,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                      color: cardColor.withOpacity(0.93),
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -405,19 +637,25 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        bot['botId'] ?? 'Unknown Bot',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(fontWeight: FontWeight.bold),
+                                      Row(
+                                        children: [
+                                          Icon(Icons.smart_toy, color: Colors.white, size: 22),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            bot['botId'] ?? 'Unknown Bot',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium
+                                                ?.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         bot['strategy'] ?? 'Strategy Unknown',
                                         style: const TextStyle(
                                           fontSize: 12,
-                                          color: Colors.grey,
+                                          color: Colors.white70,
                                         ),
                                       ),
                                     ],
@@ -428,7 +666,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
 
                             // Trading Symbols
                             Wrap(
@@ -437,12 +675,12 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                 (bot['symbols'] as List).length,
                                 (i) => Chip(
                                   label: Text(bot['symbols'][i]),
-                                  backgroundColor: Colors.blue.withOpacity(0.2),
-                                  labelStyle: const TextStyle(fontSize: 11),
+                                  backgroundColor: Colors.white.withOpacity(0.18),
+                                  labelStyle: const TextStyle(fontSize: 11, color: Colors.white),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
 
                             // Runtime and Daily Profit
                             Row(
@@ -455,7 +693,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                       'Running for',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey,
+                                        color: Colors.white70,
                                       ),
                                     ),
                                     Text(
@@ -463,6 +701,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                       style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ],
@@ -474,7 +713,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                       'Today\'s Profit',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey,
+                                        color: Colors.white70,
                                       ),
                                     ),
                                     Text(
@@ -483,22 +722,21 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
                                         color: (bot['dailyProfit'] ?? 0) >= 0
-                                            ? Colors.green
-                                            : Colors.red,
+                                            ? Colors.greenAccent
+                                            : Colors.redAccent,
                                       ),
                                     ),
                                   ],
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
 
                             // Stats Grid
                             GridView.count(
                               crossAxisCount: 3,
                               shrinkWrap: true,
-                              physics:
-                                  const NeverScrollableScrollPhysics(),
+                              physics: const NeverScrollableScrollPhysics(),
                               mainAxisSpacing: 12,
                               crossAxisSpacing: 12,
                               childAspectRatio: 1.2,
@@ -506,19 +744,19 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                                 _StatTile(
                                   label: 'Trades',
                                   value: totalTrades.toString(),
-                                  color: Colors.blue,
+                                  color: Colors.white,
                                 ),
                                 _StatTile(
                                   label: 'Win Rate',
                                   value: '$winRate%',
-                                  color: Colors.green,
+                                  color: Colors.white,
                                 ),
                                 _StatTile(
                                   label: 'Profit',
                                   value: '\$$profit',
                                   color: double.parse(profit) >= 0
-                                      ? Colors.green
-                                      : Colors.red,
+                                      ? Colors.greenAccent
+                                      : Colors.redAccent,
                                 ),
                                 _StatTile(
                                   label: 'ROI',

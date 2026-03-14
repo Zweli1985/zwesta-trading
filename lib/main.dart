@@ -1,3 +1,4 @@
+import 'services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
@@ -8,10 +9,11 @@ import 'services/trading_service.dart';
 import 'services/bot_service.dart';
 import 'services/statement_service.dart';
 import 'services/financial_service.dart';
+import 'providers/currency_provider.dart';
 import 'utils/theme.dart';
 import 'utils/environment_config.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set environment based on build mode
@@ -34,6 +36,9 @@ void main() {
     EnvironmentConfig.setEnvironment(Environment.production);
   }
 
+  // Initialize notifications
+  await NotificationService.initialize(navigatorKey.currentContext ?? WidgetsBinding.instance.renderViewElement!);
+
   // Debug build - ready for testing
   runApp(const MyApp());
 }
@@ -46,7 +51,13 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(
+          create: (_) => CurrencyProvider()..loadCurrency(),
+        ),
+        ChangeNotifierProvider(
           create: (_) => AuthService(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => FallbackStatusProvider(),
         ),
         ChangeNotifierProxyProvider<AuthService, TradingService>(
           create: (context) => TradingService(null),
@@ -72,6 +83,29 @@ class MyApp extends StatelessWidget {
         themeMode: ThemeMode.system,
         home: const AuthWrapper(),
         debugShowCheckedModeBanner: false,
+        supportedLocales: const [
+          Locale('en'),
+          Locale('xh'),
+          Locale('zu'),
+          Locale('nr'),
+          Locale('ve'),
+          Locale('af'),
+        ],
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          DefaultWidgetsLocalizations.delegate,
+          DefaultMaterialLocalizations.delegate,
+          DefaultCupertinoLocalizations.delegate,
+        ],
+        localeResolutionCallback: (locale, supportedLocales) {
+          if (locale == null) return supportedLocales.first;
+          for (var supportedLocale in supportedLocales) {
+            if (supportedLocale.languageCode == locale.languageCode) {
+              return supportedLocale;
+            }
+          }
+          return supportedLocales.first;
+        },
       ),
     );
   }

@@ -157,6 +157,47 @@ else:
     logger.info(f"[DEMO] DEMO MODE - Account: {MT5_CONFIG['account']}")
 
 # ==================== API AUTHENTICATION ====================
+OWNER_USER_ID = 'SYSTEM_OWNER_USER_ID'  # TODO: Set your real owner user_id here
+
+def get_referrer_id(user_id):
+    """Get the referrer user_id for a given user (returns None if no referrer)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT referrer_id FROM users WHERE user_id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+def pay_user(user_id, amount, reason, method='internal'):
+    """Stub for payout logic (bank/crypto integration goes here)"""
+    logger.info(f"[PAYOUT] Paying {amount:.2f} to {user_id} ({reason}) via {method}")
+    # TODO: Integrate with bank/crypto API here
+    return True
+
+def distribute_profit_split_and_commissions(user_id, profit, bot_id):
+    """Distribute profit: 20% owner, 5% referrer, 75% trader. Record commissions."""
+    owner_id = OWNER_USER_ID
+    referrer_id = get_referrer_id(user_id)
+    trader_id = user_id
+
+    owner_share = profit * 0.20
+    referrer_share = profit * 0.05
+    trader_share = profit * 0.75
+
+    # Pay owner
+    pay_user(owner_id, owner_share, f"Owner 20% profit split from bot {bot_id}")
+    # Pay referrer (if any)
+    if referrer_id:
+        add_commission(referrer_id, trader_id, profit, bot_id)  # 5% commission
+        pay_user(referrer_id, referrer_share, f"Referrer 5% commission from bot {bot_id}")
+    # Pay trader
+    pay_user(trader_id, trader_share, f"Trader 75% profit from bot {bot_id}")
+    logger.info(f"[PROFIT SPLIT] Bot {bot_id}: {owner_share:.2f} to owner, {referrer_share:.2f} to referrer, {trader_share:.2f} to trader {trader_id}")
+    return {
+        'owner': owner_share,
+        'referrer': referrer_share,
+        'trader': trader_share
+    }
 def validate_api_key():
     """Validate API key from request headers"""
     api_key = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -526,6 +567,25 @@ def init_database():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
+    
+    # ✅ MIGRATION: Add IG Markets specific columns if they don't exist
+    # Check if api_key and username columns exist in broker_credentials table
+    cursor.execute("PRAGMA table_info(broker_credentials)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if 'api_key' not in columns:
+        try:
+            cursor.execute('ALTER TABLE broker_credentials ADD COLUMN api_key TEXT')
+            logger.info("✅ Migration: Added api_key column to broker_credentials")
+        except Exception as e:
+            logger.debug(f"api_key column might already exist: {e}")
+    
+    if 'username' not in columns:
+        try:
+            cursor.execute('ALTER TABLE broker_credentials ADD COLUMN username TEXT')
+            logger.info("✅ Migration: Added username column to broker_credentials")
+        except Exception as e:
+            logger.debug(f"username column might already exist: {e}")
     
     conn.commit()
     conn.close()
@@ -4636,66 +4696,101 @@ def get_broker_credentials():
 @app.route('/api/broker/credentials', methods=['POST'])
 @require_session
 def save_broker_credentials():
-    """Save new broker credentials for user (prevents duplicates)"""
+    """Save new broker credentials for user
+    
+    Supports multiple brokers:
+    - MetaQuotes/MT5: account_number, password, server, is_live
+    - IG Markets: api_key, username, password, is_live
+    - XM Global: account_number, password, server, is_live
+    """
     try:
         user_id = request.user_id
         data = request.json
         
-        required_fields = ['broker', 'account_number', 'password', 'server']
-        if not all(field in data for field in required_fields):
+        broker_name = data.get('broker_name') or data.get('broker')
+        account_number = data.get('account_number')
+        password = data.get('password')
+        server = data.get('server')
+        api_key = data.get('api_key')  # For IG Markets
+        username = data.get('username')  # For IG Markets
+        is_live = data.get('is_live', False)
+        
+        if not broker_name:
+            return jsonify({'success': False, 'error': 'broker_name required'}), 400
+        
+        # Validate based on broker type
+        if broker_name == 'IG Markets':
+            if not api_key or not username or not password:
+                return jsonify({
+                    'success': False,
+                    'error': 'IG Markets requires: api_key, username, password'
+                }), 400
+        elif broker_name in ['MetaQuotes', 'XM Global', 'MetaTrader 5']:
+            if not account_number or not password:
+                return jsonify({
+                    'success': False,
+                    'error': f'{broker_name} requires: account_number, password, server'
+                }), 400
+            if not server:
+                server = 'MetaQuotes-Demo' if broker_name == 'MetaQuotes' else 'XMGlobal-Demo'
+        else:
             return jsonify({
                 'success': False,
-                'error': f'Missing required fields: {required_fields}'
+                'error': f'Unknown broker: {broker_name}. Supported: MetaQuotes, IG Markets, XM Global'
             }), 400
         
         created_at = datetime.now().isoformat()
-        is_live = data.get('is_live', False)
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Check if credential already exists for this user, broker, and account
-        cursor.execute('''
-            SELECT credential_id FROM broker_credentials
-            WHERE user_id = ? AND broker_name = ? AND account_number = ?
-        ''', (user_id, data['broker'], data['account_number']))
+        # For IG Markets, use username as account identifier
+        account_id = username if broker_name == 'IG Markets' else account_number
+        
+        # Check if credential already exists for this user and broker
+        if broker_name == 'IG Markets':
+            cursor.execute('''
+                SELECT credential_id FROM broker_credentials
+                WHERE user_id = ? AND broker_name = ? AND username = ?
+            ''', (user_id, broker_name, username))
+        else:
+            cursor.execute('''
+                SELECT credential_id FROM broker_credentials
+                WHERE user_id = ? AND broker_name = ? AND account_number = ?
+            ''', (user_id, broker_name, account_number))
         
         existing = cursor.fetchone()
         
         if existing:
-            # Update existing credential instead of creating duplicate
+            # Update existing credential
             credential_id = existing[0]
-            cursor.execute('''
-                UPDATE broker_credentials
-                SET password = ?, server = ?, is_live = ?, updated_at = ?
-                WHERE credential_id = ?
-            ''', (
-                data['password'],
-                data['server'],
-                1 if is_live else 0,
-                created_at,
-                credential_id
-            ))
-            logger.info(f"ℹ️ Updated existing broker credential for user {user_id}: {data['broker']} | Account: {data['account_number']}")
+            if broker_name == 'IG Markets':
+                cursor.execute('''
+                    UPDATE broker_credentials
+                    SET api_key = ?, username = ?, password = ?, is_live = ?, updated_at = ?
+                    WHERE credential_id = ?
+                ''', (api_key, username, password, 1 if is_live else 0, created_at, credential_id))
+            else:
+                cursor.execute('''
+                    UPDATE broker_credentials
+                    SET account_number = ?, password = ?, server = ?, is_live = ?, updated_at = ?
+                    WHERE credential_id = ?
+                ''', (account_number, password, server, 1 if is_live else 0, created_at, credential_id))
+            
+            logger.info(f"✅ Updated broker credential for user {user_id}: {broker_name} | Account: {account_id}")
         else:
             # Create new credential
             credential_id = str(uuid.uuid4())
             cursor.execute('''
                 INSERT INTO broker_credentials
-                (credential_id, user_id, broker_name, account_number, password, server, is_live, is_active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                (credential_id, user_id, broker_name, account_number, password, server, 
+                 api_key, username, is_live, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ''', (
-                credential_id,
-                user_id,
-                data['broker'],
-                data['account_number'],
-                data['password'],
-                data['server'],
-                1 if is_live else 0,
-                created_at,
-                created_at
+                credential_id, user_id, broker_name, account_number or '', password, server or '',
+                api_key or '', username or '', 1 if is_live else 0, created_at, created_at
             ))
-            logger.info(f"✅ Created new broker credential for user {user_id}: {data['broker']} | Account: {data['account_number']}")
+            logger.info(f"✅ Created new broker credential for user {user_id}: {broker_name} | Account: {account_id}")
         
         conn.commit()
         conn.close()
@@ -4704,9 +4799,8 @@ def save_broker_credentials():
             'success': True,
             'credential': {
                 'credential_id': credential_id,
-                'broker': data['broker'],
-                'account_number': data['account_number'],
-                'server': data['server'],
+                'broker_name': broker_name,
+                'account_number': account_number or username,
                 'is_live': is_live,
                 'is_active': True,
                 'created_at': created_at,
@@ -4714,7 +4808,7 @@ def save_broker_credentials():
         }), 201
         
     except Exception as e:
-        logger.error(f"❌ Error saving credentials: {e}")
+        logger.error(f"❌ Error saving broker credentials: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -5845,6 +5939,118 @@ def continuous_bot_trading_loop(bot_id: str, user_id: str, bot_credentials: Dict
         running_bots[bot_id] = False
 
 
+def get_broker_connection(credential_id: str, user_id: str, bot_id: str = None):
+    """Dynamically load and return the correct broker connection based on credential type
+    
+    Supports:
+    - IG Markets (REST API)
+    - MetaQuotes/MT5 (Terminal SDK)
+    - XM Global (MT5)
+    
+    Returns: (broker_type, connection_object) or (None, error_message)
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Load credential from database
+        cursor.execute('''
+            SELECT credential_id, broker_name, api_key, username, password,
+                   account_number, server, is_live
+            FROM broker_credentials
+            WHERE credential_id = ? AND user_id = ? AND is_active = 1
+        ''', (credential_id, user_id))
+        
+        cred_row = cursor.fetchone()
+        conn.close()
+        
+        if not cred_row:
+            error_msg = f"Credential {credential_id} not found or inactive for user {user_id}"
+            logger.error(error_msg)
+            return None, error_msg
+        
+        cred = dict(cred_row)
+        broker_name = cred['broker_name']
+        
+        logger.info(f"[Broker Detection] Bot {bot_id}: Detected broker type: {broker_name}")
+        
+        # ✅ IG MARKETS - REST API
+        if broker_name == 'IG Markets':
+            logger.info(f"[Broker Switch] Bot {bot_id}: Using IG Markets REST API")
+            api_key = cred['api_key']
+            username = cred['username']
+            password = cred['password']
+            is_live = cred['is_live']
+            
+            if not api_key or not username or not password:
+                error_msg = f"IG Markets: Missing credentials (api_key={bool(api_key)}, username={bool(username)}, password={bool(password)})"
+                logger.error(error_msg)
+                return None, error_msg
+            
+            # Create IG connection with user's credentials
+            ig_conn = IGConnection(credentials={
+                'api_key': api_key,
+                'username': username,
+                'password': password,
+                'is_live': is_live
+            })
+            
+            if ig_conn.connect():
+                logger.info(f"✅ Bot {bot_id}: Connected to IG Markets ({username})")
+                return 'IG Markets', ig_conn
+            else:
+                error_msg = f"Failed to connect to IG Markets for user {username}"
+                logger.error(error_msg)
+                return None, error_msg
+        
+        # ✅ METATRADER 5 - MetaQuotes or XM Global
+        elif broker_name in ['MetaQuotes', 'XM Global', 'MetaTrader 5']:
+            logger.info(f"[Broker Switch] Bot {bot_id}: Using MetaTrader 5 SDK")
+            account_number = cred['account_number']
+            password = cred['password']
+            server = cred['server']
+            is_live = cred['is_live']
+            
+            if not account_number or not password or not server:
+                error_msg = f"MT5: Missing credentials (account={bool(account_number)}, password={bool(password)}, server={bool(server)})"
+                logger.error(error_msg)
+                return None, error_msg
+            
+            # Normalize server name for MT5
+            if 'xm' in server.lower():
+                server = 'XMGlobal-Demo' if not is_live else 'XMGlobal-Live'
+            elif 'metaquotes' in server.lower():
+                server = 'MetaQuotes-Demo' if not is_live else 'MetaQuotes-Live'
+            
+            logger.info(f"Bot {bot_id}: Connecting to MT5 - Account: {account_number}, Server: {server}")
+            
+            # Create MT5 connection
+            mt5_conn = MT5Connection(
+                account=account_number,
+                password=password,
+                server=server,
+                mt5_path=MT5_CONFIG.get('path')
+            )
+            
+            if mt5_conn.connect():
+                logger.info(f"✅ Bot {bot_id}: Connected to MT5 ({account_number}@{server})")
+                return 'MetaTrader 5', mt5_conn
+            else:
+                error_msg = f"Failed to connect to MT5 - Account: {account_number}, Server: {server}"
+                logger.error(error_msg)
+                return None, error_msg
+        
+        else:
+            error_msg = f"Unknown broker type: {broker_name}. Supported: IG Markets, MetaQuotes, XM Global"
+            logger.error(error_msg)
+            return None, error_msg
+    
+    except Exception as e:
+        error_msg = f"Error loading broker connection: {str(e)}"
+        logger.error(error_msg)
+        return None, error_msg
+
+
 @app.route('/api/bot/start', methods=['POST'])
 @require_session
 def start_bot():
@@ -5926,55 +6132,39 @@ def start_bot():
             conn.close()
             return jsonify({'success': False, 'error': 'Unauthorized: Bot does not belong to this user'}), 403
         
-        # HYBRID MODE: Check if LIVE mode and retrieve credentials
-        bot_mode = bot.get('mode', 'demo')
-        bot_credentials = None
+        # ✅ AUTOMATIC BROKER DETECTION
+        # Get credential_id from bot and determine which broker to use
+        credential_id = bot.get('credentialId')
         
-        if bot_mode == 'live':
-            credential_id = bot.get('credentialId')
-            if credential_id:
-                # Retrieve user's MT5 credentials from database
-                cursor.execute('''
-                    SELECT credential_id, broker_name, account_number, password, server, is_live
-                    FROM broker_credentials
-                    WHERE credential_id = ? AND user_id = ? AND is_active = 1
-                ''', (credential_id, user_id))
-                
-                cred_row = cursor.fetchone()
-                if cred_row:
-                    # Auto-correct server name for MT5 brokers
-                    server_name = cred_row['server']
-                    broker_name = cred_row['broker_name']
-                    account_number = cred_row['account_number']
-                    
-                    # ✅ FIX: Force all MetaQuotes/MT5 bots to use VPS account (104254514)
-                    # VPS only has access to one MT5 instance - the demo account
-                    if broker_name.lower() in ['metaquotes', 'xm', 'xm global', 'metatrader5', 'mt5']:
-                        server_name = MT5_CONFIG['server']
-                        account_number = MT5_CONFIG['account']  # Use VPS account, not user's account
-                        logger.info(f"Bot {bot_id}: Standardizing account to VPS MT5 ({account_number}) for compatibility")
-                    
-                    bot_credentials = {
-                        'account_number': account_number,
-                        'password': cred_row['password'],
-                        'server': server_name,
-                        'is_live': cred_row['is_live']
-                    }
-                    logger.info(f"Bot {bot_id}: LIVE MODE - Using MT5 account {bot_credentials['account_number']}")
-                else:
-                    conn.close()
-                    return jsonify({'success': False, 'error': 'MT5 credentials not found or inactive'}), 404
-            else:
-                conn.close()
-                return jsonify({'success': False, 'error': 'Live mode bot missing credential_id'}), 400
-        else:
-            # DEMO MODE: Use shared demo account
-            logger.info(f"Bot {bot_id}: DEMO MODE - Using shared MT5 account {MT5_CONFIG['account']}")
+        if not credential_id:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Bot missing credentialId - must link to broker credential first'
+            }), 400
+        
+        # Load the correct broker connection automatically
+        broker_type, broker_conn = get_broker_connection(credential_id, user_id, bot_id)
+        
+        if broker_conn is None:
+            # Error loading broker connection
+            return jsonify({
+                'success': False,
+                'error': f'Failed to connect to broker: {broker_type}',
+                'botId': bot_id,
+                'status': 'FAILED'
+            }), 503
+        
+        logger.info(f"✅ Bot {bot_id}: Broker connection established ({broker_type})")
+        
+        # Store bot config with broker info for trading loop
+        bot_config = active_bots[bot_id]
+        bot_config['broker_type'] = broker_type
+        bot_config['broker_conn'] = broker_conn
         
         conn.close()
         
         import random
-        bot_config = active_bots[bot_id]
         
         # ✅ VALIDATE & CORRECT BOT SYMBOLS IMMEDIATELY (in case they're old/unavailable)
         # This prevents users from being shown old symbols and ensures trades use valid ones
@@ -5998,47 +6188,7 @@ def start_bot():
             except Exception as e:
                 logger.warning(f"Could not update bot symbols in DB: {e}")
         
-        # REQUIRE REAL MT5 TRADES - Validate connection will work
-        logger.info(f"📍 Bot {bot_id}: Validating MT5 connection...")
-        
-        mt5_conn = None
-        
-        try:
-            if bot_mode == 'live' and bot_credentials:
-                mt5_conn = MT5Connection(bot_credentials)
-            else:
-                # Use default demo account
-                mt5_conn = MT5Connection()
-            
-            if not mt5_conn.connect():
-                error_msg = f"❌ CRITICAL: Failed to connect to MT5 for bot {bot_id} - bot cannot start without real MT5 connection"
-                logger.error(error_msg)
-                return jsonify({
-                    'success': False,
-                    'error': error_msg,
-                    'botId': bot_id,
-                    'status': 'FAILED'
-                }), 503
-            else:
-                logger.info(f"✅ Bot {bot_id} connected to REAL MT5 - connection validated")
-                # ✅ NEW: Quick readiness check (non-blocking, 10 second timeout)
-                # Just verify MT5 can access market data, don't wait for full trading readiness
-                if not mt5_conn.wait_for_mt5_ready(timeout_seconds=10):
-                    logger.warning(f"⚠️  Bot {bot_id}: MT5 slow to initialize (readiness check timeout)")
-                    logger.warning(f"    Bot will continue attempting to trade in background")
-                    logger.warning(f"    If MT5 is restarting, it may need up to 60 seconds to be fully operational")
-                    # Don't fail here - just warn. Background thread has longer timeout (60 seconds on first cycle)
-                
-                mt5_conn.disconnect()  # Disconnect from main thread - background thread will create own connection
-        except Exception as e:
-            error_msg = f"❌ CRITICAL: MT5 connection failed for bot {bot_id}: {e}"
-            logger.error(error_msg)
-            return jsonify({
-                'success': False,
-                'error': error_msg,
-                'botId': bot_id,
-                'status': 'FAILED'
-            }), 503
+        logger.info(f"✅ Bot {bot_id}: All validation checks passed - ready to start trading")
         
         # Validate symbols are available
         validated_symbols = validate_and_correct_symbols(bot_config.get('symbols', ['EURUSD']))
@@ -6275,9 +6425,13 @@ def bot_status_public():
             enhanced_bot = {
                 'botId': bot.get('botId', 'unknown'),
                 'symbol': symbol,
+                'symbols': symbols,  # ✅ Include full symbols list
                 'strategy': bot.get('strategy', 'Unknown'),
                 'commission': round(total_profit * 0.01, 2),
                 'profit': round(total_profit, 2),
+                'totalProfit': round(total_profit, 2),  # ✅ Include totalProfit field
+                'totalTrades': bot.get('totalTrades', 0),  # ✅ Include totalTrades
+                'winningTrades': bot.get('winningTrades', 0),  # ✅ Include winningTrades
                 'runtimeFormatted': f"{int(runtime_hours)}h {int(runtime_minutes)}m",
                 'dailyProfit': round(daily_profit, 2),
                 'roi': round(roi, 2),
@@ -7599,19 +7753,18 @@ def auto_withdrawal_monitor():
                             WHERE bot_id = ?
                         ''', (created_at, bot_id))
                         
+                        # Distribute profit split and commissions
+                        distribute_profit_split_and_commissions(user_id, withdrawal_amount, bot_id)
                         # Reset bot profit
                         active_bots[bot_id]['totalProfit'] = 0
                         active_bots[bot_id]['dailyProfit'] = 0
-                        
                         # Mark as completed
                         cursor.execute('''
                             UPDATE auto_withdrawal_history
                             SET status = 'completed', completed_at = ?
                             WHERE withdrawal_id = ?
                         ''', (datetime.now().isoformat(), withdrawal_id))
-                        
                         logger.info(f"✅ Auto-withdrawal executed for {bot_id}: ${net_amount:.2f} (Mode: {withdrawal_mode})")
-                        
                     except Exception as e:
                         logger.error(f"Error executing withdrawal for {bot_id}: {e}")
         
@@ -8314,10 +8467,10 @@ if __name__ == '__main__':
     # AUTO-CONNECT to IG.com (using API key from screenshot: 9bbc3ef9ad291acec96dc409d80e50c4c805161a)
     auto_connect_ig()
     
-    # Initialize demo bots on startup
-    logger.info("Initializing demo trading bots...")
-    initialize_demo_bots()
-    logger.info(f"[OK] {len(active_bots)} demo bots initialized and ready")
+    # Initialize demo bots on startup (DISABLED for production cleanup)
+    # logger.info("Initializing demo trading bots...")
+    # initialize_demo_bots()
+    # logger.info(f"[OK] {len(active_bots)} demo bots initialized and ready")
     
     # Load user-created bots from database
     logger.info("Loading user-created bots from database...")

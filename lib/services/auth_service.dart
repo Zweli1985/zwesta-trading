@@ -1,3 +1,61 @@
+  // 2FA/MFA verification
+  Future<bool> verifyMfaCode(String? sessionToken, String code) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final response = await http.post(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/user/verify-2fa'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (sessionToken != null) 'X-Session-Token': sessionToken,
+        },
+        body: jsonEncode({'code': code}),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          _token = data['session_token'];
+          _currentUser = User(
+            id: data['user_id'] ?? '0',
+            username: data['email'] ?? '',
+            email: data['email'] ?? '',
+            firstName: data['name']?.split(' ')[0] ?? 'Trading',
+            lastName: data['name']?.split(' ').length > 1 ? data['name'].split(' ')[1] : 'User',
+            accountType: 'Premium',
+          );
+          await _prefs.setString('auth_token', _token!);
+          await _prefs.setString('user_id', data['user_id'] ?? '');
+          await _prefs.setString('current_user', jsonEncode(_currentUser!.toJson()));
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        } else {
+          throw Exception(data['error'] ?? '2FA verification failed');
+        }
+      } else {
+        final data = jsonDecode(response.body);
+        throw Exception(data['error'] ?? '2FA failed with code ${response.statusCode}');
+      }
+    } catch (e) {
+      _errorMessage = '2FA Error: ${e.toString()}';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> resendMfaCode(String? sessionToken) async {
+    try {
+      await http.post(
+        Uri.parse('${EnvironmentConfig.apiUrl}/api/user/resend-2fa'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (sessionToken != null) 'X-Session-Token': sessionToken,
+        },
+      ).timeout(const Duration(seconds: 10));
+    } catch (_) {}
+  }
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';

@@ -328,12 +328,27 @@ class _BotConfigurationScreenState extends State<BotConfigurationScreen> {
         // Refresh commission data
         _commissionService.fetchCommissions();
         
-        // Auto-navigate to dashboard after 3 seconds
-        Future.delayed(const Duration(seconds: 3), () {
+        // Show success snackbar immediately
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Bot "${_botIdController.text}" created and running! It will appear in the list below.'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        
+        // Auto-navigate to dashboard after 2 seconds
+        Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (context) => const BotDashboardScreen()),
-              (route) => route.isFirst,
+            Navigator.of(context).pushReplacementNamed(
+              '/dashboard',
+              arguments: {
+                'botCreated': true,
+                'botId': _botIdController.text,
+                'message': '✅ Bot "${_botIdController.text}" created and running!',
+              },
             );
           }
         });

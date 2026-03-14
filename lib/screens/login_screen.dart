@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../utils/constants.dart';
 import '../widgets/custom_widgets.dart';
 import '../widgets/logo_widget.dart';
+import '../l10n/app_localizations.dart';
 import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,9 +18,12 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   late TextEditingController _usernameController;
   late TextEditingController _passwordController;
+  late TextEditingController _mfaController;
   bool _obscurePassword = true;
   bool _isLogin = true;
   bool _showForgotPassword = false;
+  bool _showMfaPrompt = false;
+  String? _pendingSessionToken;
   late TextEditingController _emailController;
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
@@ -29,6 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _usernameController = TextEditingController();
     _passwordController = TextEditingController();
+    _mfaController = TextEditingController();
     _emailController = TextEditingController();
     _firstNameController = TextEditingController();
     _lastNameController = TextEditingController();
@@ -38,6 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _mfaController.dispose();
     _emailController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
@@ -55,6 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     }
 
+    final loc = AppLocalizations.of(context)!;
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -91,13 +98,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  _isLogin ? 'Welcome Back' : 'Create Your Account',
+                  _isLogin ? loc.translate('welcome', params: {'name': ''}) : loc.translate('Create Your Account'),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.poppins(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
+                  semanticsLabel: _isLogin ? loc.translate('welcome', params: {'name': ''}) : loc.translate('Create Your Account'),
                 ),
                 const SizedBox(height: AppSpacing.lg),
 
@@ -105,32 +113,133 @@ class _LoginScreenState extends State<LoginScreen> {
                 Consumer<AuthService>(
                   builder: (context, authService, _) {
                     if (authService.errorMessage != null) {
-                      return Column(
-                        children: [
-                          ErrorBanner(
-                            message: authService.errorMessage!,
-                            onDismiss: () {
-                              authService.clearErrorMessage();
-                            },
+                      return Scaffold(
+                        body: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.blue[900]!,
+                                Colors.blue[700]!,
+                                Colors.purple[400]!,
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: AppSpacing.md),
-                        ],
+                          child: SafeArea(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (_showMfaPrompt) ...[
+                                    const SizedBox(height: 40),
+                                    Text(
+                                      'Two-Factor Authentication',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.white,
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Enter the 2FA code sent to your email or authenticator app.',
+                                      style: GoogleFonts.roboto(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 32),
+                                    TextField(
+                                      controller: _mfaController,
+                                      keyboardType: TextInputType.number,
+                                      maxLength: 6,
+                                      style: const TextStyle(color: Colors.white),
+                                      decoration: InputDecoration(
+                                        hintText: '2FA Code',
+                                        hintStyle: const TextStyle(color: Colors.white54),
+                                        prefixIcon: const Icon(Icons.password, color: Colors.white70),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: const BorderSide(color: Colors.white30),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: const BorderSide(color: Colors.white30),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: const BorderSide(color: Colors.white),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 32),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor: Colors.blue[900],
+                                          padding: const EdgeInsets.symmetric(vertical: 14),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        onPressed: _verifyMfaCode,
+                                        child: Text(
+                                          'Verify Code',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: _resendMfaCode,
+                                      child: const Text('Resend Code', style: TextStyle(color: Colors.white70)),
+                                    ),
+                                  ] else ...[
+                                    // ...existing code for login/register UI...
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       );
+                    // 2FA/MFA logic
+                    void _showMfa(String? sessionToken) {
+                      setState(() {
+                        _showMfaPrompt = true;
+                        _pendingSessionToken = sessionToken;
+                      });
                     }
-                    return const SizedBox.shrink();
-                  },
-                ),
 
-                // Form Fields
-                if (_isLogin)
-                  _buildLoginForm()
-                else
-                  _buildRegisterForm(),
+                    void _verifyMfaCode() async {
+                      final code = _mfaController.text.trim();
+                      if (code.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the 2FA code')));
+                        return;
+                      }
+                      final authService = Provider.of<AuthService>(context, listen: false);
+                      final success = await authService.verifyMfaCode(_pendingSessionToken, code);
+                      if (success) {
+                        setState(() {
+                          _showMfaPrompt = false;
+                          _pendingSessionToken = null;
+                        });
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(authService.errorMessage ?? 'Invalid code')));
+                      }
+                    }
 
-                const SizedBox(height: AppSpacing.lg),
-
-                // Login/Register Button
-                Consumer<AuthService>(
+                    void _resendMfaCode() async {
+                      final authService = Provider.of<AuthService>(context, listen: false);
+                      await authService.resendMfaCode(_pendingSessionToken);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2FA code resent.')));
+                    }
                   builder: (context, authService, _) {
                     return ElevatedButton(
                       onPressed: authService.isLoading ? null : _handleSubmit,

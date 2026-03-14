@@ -342,7 +342,6 @@ class BotService extends ChangeNotifier {
     try {
       // First try to fetch from backend
       await fetchActiveBots();
-      
       if (_activeBots.isNotEmpty) {
         // Use first bot from backend
         final botData = _activeBots[0];
@@ -351,7 +350,13 @@ class BotService extends ChangeNotifier {
         // Fallback: Load from local storage
         final prefs = await SharedPreferences.getInstance();
         final botJson = prefs.getString('bot_config');
-
+        try {
+          final context = navigatorKey.currentContext;
+          if (context != null) {
+            final fallback = context.read<FallbackStatusProvider>();
+            fallback.setFallback(reason: 'Bot configuration loaded from cache or mock data.');
+          }
+        } catch (_) {}
         if (botJson != null) {
           _bot = Bot.fromJson(jsonDecode(botJson));
           _loadBotStats();
