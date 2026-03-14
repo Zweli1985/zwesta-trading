@@ -3228,6 +3228,9 @@ def get_trades_public():
             'trades': trades_list,
             'timestamp': datetime.now().isoformat(),
         })
+    except Exception as e:
+        logger.error(f"Error getting public trades: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trades/unified', methods=['GET'])
