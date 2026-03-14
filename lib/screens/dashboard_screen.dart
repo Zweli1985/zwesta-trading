@@ -38,39 +38,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-    void _fetchActiveBots() {
-      setState(() {
-        _botsLoading = true;
-        _botsError = null;
-      });
-      // Simulate API call or use TradingService
-      Future.delayed(const Duration(seconds: 1), () {
-        setState(() {
-          // Example: Replace with actual API call
-          _activeBotsList = [
-            {
-              'botId': 'bot_trend_1',
-              'enabled': true,
-              'runtimeFormatted': '2h 15m',
-              'dailyProfit': 120.50,
-              'totalTrades': 34,
-            },
-          ];
-          _botsLoading = false;
-        });
-      });
-    }
-
-    void _startAutoRefresh() {
-      _refreshTimer?.cancel();
-      _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-        if (mounted) {
-          _fetchActiveBots();
-        }
-      });
-    }
   int _selectedIndex = 0;
-  List<dynamic> _activeBotsList = [];
+  List<dynamic> _realBotsList = [];
   bool _botsLoading = true;
   String? _botsError;
   Timer? _refreshTimer;
@@ -78,96 +47,198 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchActiveBots();
+    _fetchRealBots();
     _startAutoRefresh();
   }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Fetch real bots from BotService and filter out demo bots
+  void _fetchRealBots() {
+    setState(() {
+      _botsLoading = true;
+      _botsError = null;
+    });
+
+    try {
+      final botService = context.read<BotService>();
+      
+      // Fetch bots from backend via BotService
+      botService.fetchActiveBots().then((_) {
+        if (mounted) {
+          setState(() {
+            // Filter out demo bots (botId starts with 'DemoBot_' or 'demo')
+            _realBotsList = botService.activeBots
+                .where((bot) {
+                  final botId = (bot['botId'] ?? '').toString().toLowerCase();
+                  return !botId.startsWith('demobot_') && !botId.startsWith('demo_');
+                })
+                .toList();
+            
+            _botsError = botService.errorMessage;
+            _botsLoading = false;
+            
+            print('✅ Loaded ${_realBotsList.length} real bots (filtered demo bots)');
+          });
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            _botsError = 'Error fetching bots: $e';
+            _realBotsList = [];
+            _botsLoading = false;
+          });
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _botsError = 'Error loading bots: $e';
+          _realBotsList = [];
+          _botsLoading = false;
+        });
+      }
+    }
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        _fetchRealBots();
+      }
+    });
+  }
+
+  /// Get the current screen based on selected index
+  Widget _getScreenForIndex(int index) {
+    switch (index) {
+      case 0:
+        return _buildDashboardTab();
+      case 1:
+        return const TradesScreen();
+      case 2:
+        return const AccountManagementScreen();
+      case 3:
+        return const BotDashboardScreen();
+      default:
+        return _buildDashboardTab();
+    }
+  }
+
+  /// Build the dashboard tab (home screen)
+  Widget _buildDashboardTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Consumer<TradingService>(
+            builder: (context, tradingService, _) {
+              return Column(
+                children: [
+                  if (tradingService.errorMessage != null)
+                    Card(
+                      color: Colors.red[100],
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                tradingService.errorMessage!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (!tradingService.isUsingApi)
+                    Card(
+                      color: Colors.orange[100],
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'App is using mock data. Check API URL and backend status.',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          Consumer<AuthService>(
+            builder: (context, authService, _) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Welcome back, ${authService.currentUser?.firstName ?? 'User'}!',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Let\'s make some profits today',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          _buildActiveBotsSection(),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<TradingService>(
-      builder: (context, tradingService, _) {
-        return Scaffold(
-          drawer: _buildDrawerMenu(),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Error and API status display
-                if (tradingService.errorMessage != null)
-                  Card(
-                    color: Colors.red[100],
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error, color: Colors.red),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              tradingService.errorMessage!,
-                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (!tradingService.isUsingApi)
-                  Card(
-                    color: Colors.orange[100],
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.warning, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text(
-                              'App is using mock data. Check API URL and backend status.',
-                              style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                Consumer<AuthService>(
-                  builder: (context, authService, _) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Welcome back, ${authService.currentUser?.firstName ?? 'User'}!',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Let\'s make some profits today',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                // ...existing code...
-                const SizedBox(height: 24),
-                // Portfolio Stats
-                // ...existing code...
-                // Active Trading Bots Section
-                _buildActiveBotsSection(),
-                const SizedBox(height: 16),
-              ],
-            ),
+    return Scaffold(
+      drawer: _buildDrawerMenu(),
+      appBar: AppBar(
+        title: const Text('ZWESTA Trading'),
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchRealBots,
+            tooltip: 'Refresh bots',
           ),
-        );
-      },
+        ],
+      ),
+      body: _getScreenForIndex(_selectedIndex),
+      bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
@@ -179,12 +250,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Active Trading Bots',
+              'Active Trading Bots (Real)',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             if (!_botsLoading)
               ElevatedButton.icon(
-                onPressed: _fetchActiveBots,
+                onPressed: _fetchRealBots,
                 icon: const Icon(Icons.refresh, size: 16),
                 label: const Text('Refresh'),
                 style: ElevatedButton.styleFrom(
@@ -203,7 +274,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: const [
                     CircularProgressIndicator(),
                     SizedBox(height: 12),
-                    Text('Loading active bots...'),
+                    Text('Loading real trading bots...'),
                   ],
                 ),
               ),
@@ -223,14 +294,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton(
-                    onPressed: _fetchActiveBots,
+                    onPressed: _fetchRealBots,
                     child: const Text('Retry'),
                   ),
                 ],
               ),
             ),
           )
-        else if (_activeBotsList.isEmpty)
+        else if (_realBotsList.isEmpty)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -240,7 +311,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Icon(Icons.smart_toy, size: 40, color: Colors.grey),
                     const SizedBox(height: 8),
                     Text(
-                      'No Active Bots',
+                      'No Real Trading Bots Active',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
@@ -264,9 +335,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _activeBotsList.length,
+            itemCount: _realBotsList.length,
             itemBuilder: (context, index) {
-              final bot = _activeBotsList[index];
+              final bot = _realBotsList[index];
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: Padding(
