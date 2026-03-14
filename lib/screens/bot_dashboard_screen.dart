@@ -4,7 +4,6 @@ import '../widgets/global_loading_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:zwesta_trader/screens/_summary_tile.dart';
 import '../widgets/global_error_banner.dart';
 import '../utils/session_utils.dart';
 import 'dart:async';
@@ -405,30 +404,56 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _SummaryTile(
-                            label: 'Total Bots',
-                            value: _activeBots.length.toString(),
-                            icon: Icons.smart_toy,
-                            color: Colors.blueAccent,
+                          Expanded(
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.smart_toy, color: Colors.blueAccent),
+                                    Text('Total Bots'),
+                                    Text(_activeBots.length.toString()),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
-                          _SummaryTile(
-                            label: 'Total Profit',
-                            value: '${currencyProvider.symbol} ' + currencyProvider.convert(_activeBots.fold<double>(0, (sum, b) => sum + ((b['totalProfit'] ?? 0).toDouble())), fromUsd: false).toStringAsFixed(2),
-                            icon: Icons.trending_up,
-                            color: Colors.greenAccent,
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.trending_up, color: Colors.greenAccent),
+                                    Text('Total Profit'),
+                                    Text('${currencyProvider.symbol} ' + currencyProvider.convert(_activeBots.fold<double>(0, (sum, b) => sum + ((b['totalProfit'] ?? 0).toDouble())), fromUsd: false).toStringAsFixed(2)),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
-                          _SummaryTile(
-                            label: 'Avg Win Rate',
-                            value: _activeBots.isNotEmpty
-                                ? (_activeBots.fold<double>(0, (sum, b) {
-                                    final total = (b['totalTrades'] ?? 0).toDouble();
-                                    final win = (b['winningTrades'] ?? 0).toDouble();
-                                    return sum + (total > 0 ? (win / total * 100) : 0);
-                                  }) /
-                                    _activeBots.length).toStringAsFixed(1) + '%'
-                                : '0.0%',
-                            icon: Icons.emoji_events,
-                            color: Colors.orangeAccent,
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.emoji_events, color: Colors.orangeAccent),
+                                    Text('Avg Win Rate'),
+                                    Text(_activeBots.isNotEmpty
+                                        ? (_activeBots.fold<double>(0, (sum, b) {
+                                            final total = (b['totalTrades'] ?? 0).toDouble();
+                                            final win = (b['winningTrades'] ?? 0).toDouble();
+                                            return sum + (total > 0 ? (win / total * 100) : 0);
+                                          }) /
+                                            _activeBots.length).toStringAsFixed(1) + '%'
+                                        : '0.0%'),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
