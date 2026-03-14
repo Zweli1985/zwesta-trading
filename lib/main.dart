@@ -10,8 +10,10 @@ import 'services/bot_service.dart';
 import 'services/statement_service.dart';
 import 'services/financial_service.dart';
 import 'providers/currency_provider.dart';
+import 'providers/fallback_status_provider.dart';
 import 'utils/theme.dart';
 import 'utils/environment_config.dart';
+import 'l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,8 +38,15 @@ void main() async {
     EnvironmentConfig.setEnvironment(Environment.production);
   }
 
-  // Initialize notifications
-  await NotificationService.initialize(navigatorKey.currentContext ?? WidgetsBinding.instance.renderViewElement!);
+  // Initialize notifications - use root navigatorKey or main context
+  try {
+    await NotificationService.initialize(
+      WidgetsBinding.instance.renderViewElement ?? 
+      (await WidgetsBinding.instance as dynamic)?.window?.views?.first?.context
+    );
+  } catch (e) {
+    debugPrint('Notification initialization warning: $e');
+  }
 
   // Debug build - ready for testing
   runApp(const MyApp());
@@ -91,11 +100,10 @@ class MyApp extends StatelessWidget {
           Locale('ve'),
           Locale('af'),
         ],
-        localizationsDelegates: const [
+        localizationsDelegates: [
           AppLocalizations.delegate,
           DefaultWidgetsLocalizations.delegate,
           DefaultMaterialLocalizations.delegate,
-          DefaultCupertinoLocalizations.delegate,
         ],
         localeResolutionCallback: (locale, supportedLocales) {
           if (locale == null) return supportedLocales.first;

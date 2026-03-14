@@ -57,7 +57,9 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
     _fetchUserName();
     _startAutoRefresh();
     _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      _refreshDashboard();
+      // Refresh dashboard data
+      _fetchBrokerBalance();
+      _fetchBotStatus();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForSuccessMessage();
@@ -201,12 +203,6 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
   Future<void> _deleteBot(String botId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -218,8 +214,9 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
             icon: const Icon(Icons.history),
             tooltip: 'Activity Log',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const ActivityLogScreen()),
+              // TODO: Implement ActivityLogScreen
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Activity Log feature coming soon')),
               );
             },
           ),
@@ -317,7 +314,7 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: BackendStatusIndicator(),
+            child: BotStatusIndicator(),
           ),
           Consumer<CurrencyProvider>(
             builder: (context, currencyProvider, _) => DropdownButton<AppCurrency>(
@@ -845,7 +842,6 @@ class _BotDashboardScreenState extends State<BotDashboardScreen> {
             ],
           ),
         ),
-      ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.grey[900],

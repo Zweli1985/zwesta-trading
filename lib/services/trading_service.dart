@@ -161,15 +161,9 @@ class TradingService extends ChangeNotifier {
       _accounts = MockDataProvider.getMockAccounts();
       _trades = MockDataProvider.getMockTrades();
       _useApi = false;
-      // Notify fallback provider if context is available
-      try {
-        final context = navigatorKey.currentContext;
-        if (context != null) {
-          final fallback = context.read<FallbackStatusProvider>();
-          fallback.setFallback(reason: 'You are viewing cached or mock data. Some features may be limited.');
-        }
-      } catch (_) {}
-      print('DEBUG: Loaded [32m${_trades.length}[0m trades and [32m${_accounts.length}[0m accounts (mock)');
+      // Note: Fallback provider notification would be done from UI layer
+      // Services should not directly access context/navigator
+      debugPrint('DEBUG: Loaded ${_trades.length} trades and ${_accounts.length} accounts (mock)');
     } catch (e) {
       print('ERROR loading mock data: $e');
       _trades = [];

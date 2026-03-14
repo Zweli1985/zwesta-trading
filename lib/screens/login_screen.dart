@@ -82,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo Header with Container
+                // Logo Header
                 SizedBox(height: MediaQuery.of(context).size.height * 0.05),
                 Container(
                   padding: const EdgeInsets.all(20),
@@ -97,6 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: const LogoWidget(size: 140, showText: true),
                 ),
                 const SizedBox(height: AppSpacing.lg),
+                
+                // Title
                 Text(
                   _isLogin ? loc.translate('welcome', params: {'name': ''}) : loc.translate('Create Your Account'),
                   textAlign: TextAlign.center,
@@ -105,250 +107,36 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
-                  semanticsLabel: _isLogin ? loc.translate('welcome', params: {'name': ''}) : loc.translate('Create Your Account'),
                 ),
                 const SizedBox(height: AppSpacing.lg),
 
-                // Error Banner
+                // Error Message Display
                 Consumer<AuthService>(
                   builder: (context, authService, _) {
-                    if (authService.errorMessage != null) {
-                      return Scaffold(
-                        body: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.blue[900]!,
-                                Colors.blue[700]!,
-                                Colors.purple[400]!,
-                              ],
-                            ),
-                          ),
-                          child: SafeArea(
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (_showMfaPrompt) ...[
-                                    const SizedBox(height: 40),
-                                    Text(
-                                      'Two-Factor Authentication',
-                                      style: GoogleFonts.poppins(
-                                        color: Colors.white,
-                                        fontSize: 28,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Enter the 2FA code sent to your email or authenticator app.',
-                                      style: GoogleFonts.roboto(
-                                        color: Colors.white70,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 32),
-                                    TextField(
-                                      controller: _mfaController,
-                                      keyboardType: TextInputType.number,
-                                      maxLength: 6,
-                                      style: const TextStyle(color: Colors.white),
-                                      decoration: InputDecoration(
-                                        hintText: '2FA Code',
-                                        hintStyle: const TextStyle(color: Colors.white54),
-                                        prefixIcon: const Icon(Icons.password, color: Colors.white70),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: Colors.white30),
-                                        ),
-                                        enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: Colors.white30),
-                                        ),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: Colors.white),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 32),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.white,
-                                          foregroundColor: Colors.blue[900],
-                                          padding: const EdgeInsets.symmetric(vertical: 14),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        onPressed: _verifyMfaCode,
-                                        child: Text(
-                                          'Verify Code',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    TextButton(
-                                      onPressed: _resendMfaCode,
-                                      child: const Text('Resend Code', style: TextStyle(color: Colors.white70)),
-                                    ),
-                                  ] else ...[
-                                    // ...existing code for login/register UI...
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
+                    if (authService.errorMessage != null && authService.errorMessage!.isNotEmpty) {
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.2),
+                          border: Border.all(color: Colors.red, width: 1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          authService.errorMessage!,
+                          style: const TextStyle(color: Colors.red, fontSize: 12),
                         ),
                       );
-                    // 2FA/MFA logic
-                    void _showMfa(String? sessionToken) {
-                      setState(() {
-                        _showMfaPrompt = true;
-                        _pendingSessionToken = sessionToken;
-                      });
                     }
-
-                    void _verifyMfaCode() async {
-                      final code = _mfaController.text.trim();
-                      if (code.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the 2FA code')));
-                        return;
-                      }
-                      final authService = Provider.of<AuthService>(context, listen: false);
-                      final success = await authService.verifyMfaCode(_pendingSessionToken, code);
-                      if (success) {
-                        setState(() {
-                          _showMfaPrompt = false;
-                          _pendingSessionToken = null;
-                        });
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(authService.errorMessage ?? 'Invalid code')));
-                      }
-                    }
-
-                    void _resendMfaCode() async {
-                      final authService = Provider.of<AuthService>(context, listen: false);
-                      await authService.resendMfaCode(_pendingSessionToken);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2FA code resent.')));
-                    }
-                  builder: (context, authService, _) {
-                    return ElevatedButton(
-                      onPressed: authService.isLoading ? null : _handleSubmit,
-                      child: authService.isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : Text(_isLogin ? 'Login' : 'Register'),
-                    );
+                    return const SizedBox.shrink();
                   },
                 ),
-
                 const SizedBox(height: AppSpacing.md),
 
-                // Toggle Login/Register
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _isLogin
-                          ? "Don't have an account? "
-                          : 'Already have an account? ',
-                      style: GoogleFonts.roboto(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _isLogin = !_isLogin;
-                        });
-                        context.read<AuthService>().clearErrorMessage();
-                      },
-                      child: Text(
-                        _isLogin ? 'Register' : 'Login',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                // Forgot Password Link (only on login)
-                if (_isLogin)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: TextButton(
-                      onPressed: () {
-                        setState(() => _showForgotPassword = true);
-                      },
-                      child: Text(
-                        'Forgot Password?',
-                        style: GoogleFonts.roboto(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                const SizedBox(height: AppSpacing.xl),
-
-                // Demo Credentials
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Demo Credentials:',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'Username: demo',
-                        style: GoogleFonts.roboto(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                      Text(
-                        'Password: demo123',
-                        style: GoogleFonts.roboto(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                // Show MFA prompt or login/register form
+                if (_showMfaPrompt)
+                  _buildMfaForm(loc)
+                else
+                  _buildLoginRegisterForm(loc),
               ],
             ),
           ),
@@ -357,20 +145,164 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildLoginForm() {
+  // Build MFA/2FA form
+  Widget _buildMfaForm(AppLocalizations loc) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Two-Factor Authentication',
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Enter the 2FA code sent to your email.',
+          style: GoogleFonts.roboto(
+            color: Colors.white70,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _mfaController,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: '2FA Code',
+            hintStyle: const TextStyle(color: Colors.white54),
+            prefixIcon: const Icon(Icons.password, color: Colors.white70),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white30),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white30),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Consumer<AuthService>(
+          builder: (context, authService, _) {
+            return SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue[900],
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: authService.isLoading ? null : _verifyMfaCode,
+                child: authService.isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        'Verify Code',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: TextButton(
+            onPressed: _resendMfaCode,
+            child: const Text('Resend Code', style: TextStyle(color: Colors.white70)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Build login/register form
+  Widget _buildLoginRegisterForm(AppLocalizations loc) {
     return Column(
       children: [
-        TextField(
+        if (!_isLogin) ...[
+          // Registration fields
+          TextFormField(
+            controller: _firstNameController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: loc.translate('First Name'),
+              hintStyle: const TextStyle(color: Colors.white54),
+              prefixIcon: const Icon(Icons.person, color: Colors.white70),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            controller: _lastNameController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: loc.translate('Last Name'),
+              hintStyle: const TextStyle(color: Colors.white54),
+              prefixIcon: const Icon(Icons.person, color: Colors.white70),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextFormField(
+            controller: _emailController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: loc.translate('Email'),
+              hintStyle: const TextStyle(color: Colors.white54),
+              prefixIcon: const Icon(Icons.email, color: Colors.white70),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white30),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+        ],
+
+        // Username field
+        TextFormField(
           controller: _usernameController,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
-            labelText: 'Username',
-            labelStyle: const TextStyle(color: Colors.white70),
-            hintText: 'Enter your username',
+            hintText: loc.translate('Email'),
             hintStyle: const TextStyle(color: Colors.white54),
             prefixIcon: const Icon(Icons.person, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Colors.white30),
@@ -379,25 +311,28 @@ class _LoginScreenState extends State<LoginScreen> {
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Colors.white30),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Colors.white),
-            ),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        TextField(
+
+        // Password field
+        TextFormField(
           controller: _passwordController,
-          obscureText: _obscurePassword,
           style: const TextStyle(color: Colors.white),
+          obscureText: _obscurePassword,
           decoration: InputDecoration(
-            labelText: 'Password',
-            labelStyle: const TextStyle(color: Colors.white70),
-            hintText: 'Enter your password',
+            hintText: loc.translate('Password'),
             hintStyle: const TextStyle(color: Colors.white54),
             prefixIcon: const Icon(Icons.lock, color: Colors.white70),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.1),
+            suffixIcon: GestureDetector(
+              onTap: () {
+                setState(() => _obscurePassword = !_obscurePassword);
+              },
+              child: Icon(
+                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                color: Colors.white70,
+              ),
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Colors.white30),
@@ -406,105 +341,147 @@ class _LoginScreenState extends State<LoginScreen> {
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: Colors.white30),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Colors.white),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+
+        // Submit Button
+        Consumer<AuthService>(
+          builder: (context, authService, _) {
+            return SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue[900],
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: authService.isLoading ? null : _handleSubmit,
+                child: authService.isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        _isLogin ? loc.translate('Sign In') : loc.translate('Create Account'),
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.md),
+
+        // Toggle login/register
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _isLogin ? "Don't have an account? " : "Already have an account? ",
+              style: const TextStyle(color: Colors.white70),
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_off : Icons.visibility,
+            GestureDetector(
+              onTap: () {
+                setState(() => _isLogin = !_isLogin);
+              },
+              child: Text(
+                _isLogin ? 'Sign Up' : 'Sign In',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+
+        // Forgot password
+        if (_isLogin)
+          GestureDetector(
+            onTap: () {
+              setState(() => _showForgotPassword = true);
+            },
+            child: Text(
+              'Forgot Password?',
+              style: GoogleFonts.roboto(
                 color: Colors.white70,
+                fontSize: 12,
+                decoration: TextDecoration.underline,
               ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
             ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _buildRegisterForm() {
-    return Column(
-      children: [
-        TextField(
-          controller: _firstNameController,
-          decoration: const InputDecoration(
-            labelText: 'First Name',
-            hintText: 'Enter your first name',
-            prefixIcon: Icon(Icons.person),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        TextField(
-          controller: _lastNameController,
-          decoration: const InputDecoration(
-            labelText: 'Last Name',
-            hintText: 'Enter your last name',
-            prefixIcon: Icon(Icons.person),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        TextField(
-          controller: _usernameController,
-          decoration: const InputDecoration(
-            labelText: 'Username',
-            hintText: 'Choose a username',
-            prefixIcon: Icon(Icons.person),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        TextField(
-          controller: _emailController,
-          decoration: const InputDecoration(
-            labelText: 'Email',
-            hintText: 'Enter your email',
-            prefixIcon: Icon(Icons.email),
-          ),
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        TextField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            hintText: 'Create a password',
-            prefixIcon: const Icon(Icons.lock),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _handleSubmit() {
-    final authService = context.read<AuthService>();
-
+  // Handle login/register submission
+  void _handleSubmit() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    
     if (_isLogin) {
-      authService.login(
-        _usernameController.text,
+      final success = await authService.login(
+        _usernameController.text.trim(),
         _passwordController.text,
       );
+      if (success && mounted) {
+        // Check if 2FA is required
+        if (_showMfaPrompt) {
+          setState(() => _showMfaPrompt = true);
+        }
+      }
     } else {
-      authService.register(
-        _usernameController.text,
-        _emailController.text,
+      final success = await authService.register(
+        _usernameController.text.trim(),
+        _emailController.text.trim(),
         _passwordController.text,
-        _firstNameController.text,
-        _lastNameController.text,
+        _firstNameController.text.trim(),
+        _lastNameController.text.trim(),
+      );
+      if (success && mounted) {
+        setState(() => _isLogin = true);
+      }
+    }
+  }
+
+  // Verify 2FA/MFA code
+  void _verifyMfaCode() async {
+    final code = _mfaController.text.trim();
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the 2FA code')),
+      );
+      return;
+    }
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final success = await authService.verifyMfaCode(_pendingSessionToken, code);
+    
+    if (success && mounted) {
+      setState(() {
+        _showMfaPrompt = false;
+        _mfaController.clear();
+        _pendingSessionToken = null;
+      });
+    }
+  }
+
+  // Resend 2FA code
+  void _resendMfaCode() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    await authService.resendMfaCode(_pendingSessionToken);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('2FA code resent to your email')),
       );
     }
   }

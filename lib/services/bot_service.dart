@@ -350,13 +350,7 @@ class BotService extends ChangeNotifier {
         // Fallback: Load from local storage
         final prefs = await SharedPreferences.getInstance();
         final botJson = prefs.getString('bot_config');
-        try {
-          final context = navigatorKey.currentContext;
-          if (context != null) {
-            final fallback = context.read<FallbackStatusProvider>();
-            fallback.setFallback(reason: 'Bot configuration loaded from cache or mock data.');
-          }
-        } catch (_) {}
+        // Note: Fallback provider notification would be done from UI layer
         if (botJson != null) {
           _bot = Bot.fromJson(jsonDecode(botJson));
           _loadBotStats();
