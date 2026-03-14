@@ -5400,12 +5400,6 @@ def create_bot():
             if not user_row:
                 return jsonify({'success': False, 'error': 'User not found'}), 404
 
-            # Enforce 5-bot limit for all users
-            cursor.execute('SELECT COUNT(*) as bot_count FROM user_bots WHERE user_id = ?', (user_id,))
-            bot_count = cursor.fetchone()['bot_count']
-            if bot_count >= 5:
-                return jsonify({'success': False, 'error': 'Bot limit reached: Each user can only have 5 robots. Please delete an existing bot to create a new one.'}), 403
-
             # Verify credential exists AND belongs to this user
             cursor.execute('''
                 SELECT credential_id, broker_name, account_number, is_live 
